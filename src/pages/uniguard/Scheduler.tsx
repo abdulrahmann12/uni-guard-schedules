@@ -4,18 +4,20 @@ import { useUniGuard, dayOfDate } from "@/lib/uniguard/store";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { CalendarIcon, Sparkles, RotateCw, Check } from "lucide-react";
+import { CalendarIcon, Sparkles, RotateCw, Check, FileDown } from "lucide-react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { ScheduleGrid } from "@/components/uniguard/ScheduleGrid";
 import { toast } from "sonner";
+import { ExportDialog } from "@/components/uniguard/ExportDialog";
 
 export default function Scheduler() {
   const { rooms, slots, generate, getEntry } = useUniGuard();
   const [date, setDate] = useState<Date>(new Date());
   const [slotId, setSlotId] = useState(slots[0].id);
   const [selectedRooms, setSelectedRooms] = useState<string[]>(rooms.slice(0, 5).map(r => r.id));
+  const [exportOpen, setExportOpen] = useState(false);
 
   const dateStr = format(date, "yyyy-MM-dd");
   const day = dayOfDate(dateStr);
@@ -41,6 +43,11 @@ export default function Scheduler() {
     <AppLayout
       title="Smart Scheduler"
       subtitle="Three-step generation with fairness optimization and locked manual overrides."
+      actions={
+        <Button variant="outline" className="gap-2" onClick={() => setExportOpen(true)}>
+          <FileDown className="h-4 w-4" /> Export PDF
+        </Button>
+      }
     >
       <div className="space-y-6">
         {/* Steps */}
@@ -117,6 +124,7 @@ export default function Scheduler() {
 
         <ScheduleGrid date={dateStr} slotId={slotId} />
       </div>
+      <ExportDialog open={exportOpen} onOpenChange={setExportOpen} defaultDate={dateStr} />
     </AppLayout>
   );
 }

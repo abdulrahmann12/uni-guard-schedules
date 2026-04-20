@@ -8,6 +8,7 @@ import Index from "./pages/Index.tsx";
 import Scheduler from "./pages/uniguard/Scheduler";
 import People from "./pages/uniguard/People";
 import Rooms from "./pages/uniguard/Rooms";
+import Timeline from "./pages/uniguard/Timeline";
 import NotFound from "./pages/NotFound.tsx";
 
 const queryClient = new QueryClient();
@@ -22,6 +23,7 @@ const App = () => (
           <Routes>
             <Route path="/" element={<Index />} />
             <Route path="/scheduler" element={<Scheduler />} />
+            <Route path="/timeline" element={<Timeline />} />
             <Route path="/people" element={<People />} />
             <Route path="/rooms" element={<Rooms />} />
             <Route path="*" element={<NotFound />} />
