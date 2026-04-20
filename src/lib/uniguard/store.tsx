@@ -17,6 +17,7 @@ interface Ctx {
   toggleLock: (date: string, slotId: string, roomId: string) => void;
   manualAssign: (date: string, slotId: string, roomId: string, kind: "doctor" | "ta", index: number, staffId: string | null) => void;
   swapTAs: (date: string, slotId: string, fromRoomId: string, fromIdx: number, toRoomId: string, toIdx: number) => void;
+  setSubject: (date: string, slotId: string, roomId: string, subject: string) => void;
   getEntry: (date: string, slotId: string) => ScheduleEntry | undefined;
 }
 
