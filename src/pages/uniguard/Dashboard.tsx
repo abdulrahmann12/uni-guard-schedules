@@ -1,7 +1,7 @@
 import { AppLayout } from "@/components/uniguard/AppLayout";
 import { StatCard } from "@/components/uniguard/StatCard";
 import { useUniGuard } from "@/lib/uniguard/store";
-import { Users, UserCog, DoorOpen, CalendarCheck2, ArrowRight, Sparkles, ShieldCheck, AlertTriangle } from "lucide-react";
+import { Users, UserCog, DoorOpen, CalendarCheck2, ArrowRight, Sparkles, ShieldCheck, AlertTriangle, ListOrdered, FileDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Link } from "react-router-dom";
 
@@ -44,9 +44,9 @@ export default function Dashboard() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {[
                 { to: "/scheduler", icon: Sparkles, title: "Generate a schedule", desc: "Three steps: date, rooms, auto-assign.", tone: "bg-gradient-hero text-primary-foreground" },
+              { to: "/timeline", icon: ListOrdered, title: "Master timeline", desc: "Search & filter every scheduled exam.", tone: "bg-card border border-border" },
                 { to: "/people", icon: Users, title: "Manage people", desc: "Edit doctors, TAs and working days.", tone: "bg-card border border-border" },
                 { to: "/rooms", icon: DoorOpen, title: "Manage rooms", desc: "Add halls and labs with capacities.", tone: "bg-card border border-border" },
-                { to: "/scheduler", icon: ShieldCheck, title: "Review conflicts", desc: "Lock manual edits and regenerate.", tone: "bg-card border border-border" },
               ].map((q) => (
                 <Link key={q.title} to={q.to} className={`group rounded-lg p-4 transition-smooth hover:-translate-y-0.5 hover:shadow-elevated ${q.tone}`}>
                   <div className="flex items-start justify-between">
