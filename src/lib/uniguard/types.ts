@@ -29,6 +29,7 @@ export interface Assignment {
   taIds: (string | null)[]; // length 1 or 2
   locked: boolean;
   sharedDoctor?: boolean; // doctor covers two rooms
+  subject?: string; // free-text exam subject
 }
 
 export interface ScheduleEntry {

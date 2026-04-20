@@ -17,6 +17,7 @@ interface Ctx {
   toggleLock: (date: string, slotId: string, roomId: string) => void;
   manualAssign: (date: string, slotId: string, roomId: string, kind: "doctor" | "ta", index: number, staffId: string | null) => void;
   swapTAs: (date: string, slotId: string, fromRoomId: string, fromIdx: number, toRoomId: string, toIdx: number) => void;
+  setSubject: (date: string, slotId: string, roomId: string, subject: string) => void;
   getEntry: (date: string, slotId: string) => ScheduleEntry | undefined;
 }
 
@@ -115,6 +116,16 @@ export function UniGuardProvider({ children }: { children: ReactNode }) {
     );
   };
 
+  const setSubject: Ctx["setSubject"] = (date, slotId, roomId, subject) => {
+    setSchedule((prev) =>
+      prev.map((e) =>
+        e.date === date && e.slotId === slotId
+          ? { ...e, assignments: e.assignments.map((a) => (a.roomId === roomId ? { ...a, subject } : a)) }
+          : e
+      )
+    );
+  };
+
   const setStaffWorkingDays: Ctx["setStaffWorkingDays"] = (id, days) =>
     setStaff((prev) => prev.map((s) => (s.id === id ? { ...s, workingDays: days } : s)));
 
@@ -130,7 +141,7 @@ export function UniGuardProvider({ children }: { children: ReactNode }) {
     () => ({
       staff, rooms, slots: SLOTS, schedule,
       setStaffWorkingDays, addStaff, removeStaff, addRoom, removeRoom,
-      generate, toggleLock, manualAssign, swapTAs, getEntry,
+      generate, toggleLock, manualAssign, swapTAs, setSubject, getEntry,
     }),
     [staff, rooms, schedule, getEntry]
   );

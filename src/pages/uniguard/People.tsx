@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Day, DAYS } from "@/lib/uniguard/types";
+import { StaffProfileDialog } from "@/components/uniguard/StaffProfileDialog";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -16,6 +17,7 @@ export default function People() {
   const { staff, setStaffWorkingDays, addStaff, removeStaff } = useUniGuard();
   const doctors = staff.filter((s) => s.role === "doctor");
   const tas = staff.filter((s) => s.role === "ta");
+  const [profileId, setProfileId] = useState<string | null>(null);
 
   return (
     <AppLayout title="People" subtitle="Manage doctors and teaching assistants, their availability and workload.">
@@ -33,6 +35,7 @@ export default function People() {
             people={doctors}
             onChangeDays={(id, days) => setStaffWorkingDays(id, days)}
             onRemove={(id) => { removeStaff(id); toast.success("Removed"); }}
+            onOpenProfile={setProfileId}
             tone="doctor"
           />
         </TabsContent>
@@ -41,16 +44,19 @@ export default function People() {
             people={tas}
             onChangeDays={(id, days) => setStaffWorkingDays(id, days)}
             onRemove={(id) => { removeStaff(id); toast.success("Removed"); }}
+            onOpenProfile={setProfileId}
             tone="ta"
           />
         </TabsContent>
       </Tabs>
+      <StaffProfileDialog staffId={profileId} open={!!profileId} onOpenChange={(o) => !o && setProfileId(null)} />
     </AppLayout>
   );
 }
 
-function StaffTable({ people, onChangeDays, onRemove, tone }: { people: ReturnType<typeof useUniGuard>["staff"]; onChangeDays: (id: string, d: Day[]) => void; onRemove: (id: string) => void; tone: "doctor" | "ta" }) {
+function StaffTable({ people, onChangeDays, onRemove, onOpenProfile, tone }: { people: ReturnType<typeof useUniGuard>["staff"]; onChangeDays: (id: string, d: Day[]) => void; onRemove: (id: string) => void; onOpenProfile: (id: string) => void; tone: "doctor" | "ta" }) {
   const max = Math.max(1, ...people.map((p) => p.totalAssignments));
+  const avg = people.reduce((s, p) => s + p.totalAssignments, 0) / Math.max(1, people.length);
   return (
     <div className="rounded-xl border border-border bg-card shadow-card overflow-hidden">
       <table className="w-full text-sm">
@@ -67,7 +73,7 @@ function StaffTable({ people, onChangeDays, onRemove, tone }: { people: ReturnTy
           {people.map((p) => (
             <tr key={p.id} className="border-t border-border hover:bg-accent/20 transition-smooth">
               <td className="px-5 py-3">
-                <div className="flex items-center gap-3">
+                <button onClick={() => onOpenProfile(p.id)} className="flex items-center gap-3 text-left hover:text-primary transition-smooth">
                   <div className={cn("h-9 w-9 rounded-full grid place-items-center text-xs font-semibold", tone === "doctor" ? "bg-doctor-soft text-doctor" : "bg-ta-soft text-ta")}>
                     {p.name.replace(/^Dr\.\s*/, "").split(" ").map((s) => s[0]).slice(0, 2).join("")}
                   </div>
@@ -75,7 +81,7 @@ function StaffTable({ people, onChangeDays, onRemove, tone }: { people: ReturnTy
                     <div className="font-medium">{p.name}</div>
                     <div className="text-[11px] text-muted-foreground font-mono">{p.id}</div>
                   </div>
-                </div>
+                </button>
               </td>
               <td className="px-3 py-3 text-muted-foreground">{p.department}</td>
               <td className="px-3 py-3">
@@ -86,7 +92,9 @@ function StaffTable({ people, onChangeDays, onRemove, tone }: { people: ReturnTy
                   <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
                     <div className={cn("h-full rounded-full", tone === "doctor" ? "bg-doctor" : "bg-ta")} style={{ width: `${(p.totalAssignments / max) * 100}%` }} />
                   </div>
-                  <span className="text-xs font-semibold tabular-nums w-16 text-right">{p.totalAssignments}× assigned</span>
+                  <span className={cn("text-xs font-semibold tabular-nums w-20 text-right", p.totalAssignments > Math.max(2, Math.ceil(avg * 1.5)) && "text-warning")}>
+                    {p.totalAssignments}× assigned
+                  </span>
                 </div>
               </td>
               <td className="px-3 py-3 text-right">

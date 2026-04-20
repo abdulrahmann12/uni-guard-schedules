@@ -1,4 +1,4 @@
-import { LayoutDashboard, CalendarRange, Users, DoorOpen, ShieldCheck } from "lucide-react";
+import { LayoutDashboard, CalendarRange, Users, DoorOpen, ShieldCheck, ListOrdered } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import {
   Sidebar, SidebarContent, SidebarGroup, SidebarGroupContent, SidebarGroupLabel,
@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 const items = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
   { title: "Scheduler", url: "/scheduler", icon: CalendarRange },
+  { title: "Timeline", url: "/timeline", icon: ListOrdered },
   { title: "People", url: "/people", icon: Users },
   { title: "Rooms", url: "/rooms", icon: DoorOpen },
 ];
