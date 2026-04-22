@@ -38,6 +38,14 @@
     --warning-foreground: 30 50% 15%;
 
     /* Role colors */
+    --chief: 222 76% 32%;
+    --chief-foreground: 0 0% 100%;
+    --chief-soft: 222 70% 95%;
+
+    --invigilator: 152 65% 40%;
+    --invigilator-foreground: 0 0% 100%;
+    --invigilator-soft: 152 60% 94%;
+
     --doctor: 222 76% 32%;
     --doctor-foreground: 0 0% 100%;
     --doctor-soft: 222 70% 95%;
