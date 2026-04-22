@@ -1,59 +1,49 @@
-import { Assignment, Room, Staff, isLargeRoom, requiredTAs, Day } from "./types";
+import { Assignment, Day, Room, Staff } from "./types";
+import { validateSlotAssignments } from "./constraintEngine";
 
 interface GenerateInput {
   roomIds: string[];
   rooms: Room[];
   staff: Staff[];
   day: Day;
-  existing?: Assignment[]; // for partial regeneration (preserve locked)
+  slotId: string;
+  existing?: Assignment[];
 }
 
 interface GenerateResult {
   assignments: Assignment[];
-  staffUpdates: Record<string, number>; // staffId -> totalAssignments delta
+  staffUpdates: Record<string, number>;
   conflicts: string[];
 }
 
-// Pure scheduling engine: assigns one slot at a time
-export function generateSchedule({ roomIds, rooms, staff, day, existing = [] }: GenerateInput): GenerateResult {
-  const roomMap = new Map(rooms.map((r) => [r.id, r]));
-  const lockedByRoom = new Map<string, Assignment>();
-  for (const a of existing) if (a.locked) lockedByRoom.set(a.roomId, a);
+const cloneAssignment = (assignment: Assignment): Assignment => ({
+  ...assignment,
+  invigilatorIds: [...assignment.invigilatorIds],
+});
 
-  // Track in-slot usage
-  const doctorRoomCount = new Map<string, number>(); // doctorId -> rooms in this slot
-  const usedTAs = new Set<string>();
+export function generateSchedule({ roomIds, rooms, staff, day, slotId, existing = [] }: GenerateInput): GenerateResult {
+  const roomMap = new Map(rooms.map((room) => [room.id, room]));
+  const existingByRoom = new Map(existing.map((assignment) => [assignment.roomId, assignment]));
+  const lockedByRoom = new Map(existing.filter((assignment) => assignment.locked).map((assignment) => [assignment.roomId, assignment]));
+  const chiefRoomCount = new Map<string, number>();
+  const usedInvigilators = new Set<string>();
   const delta = new Map<string, number>();
-
-  // Account for locked assignments first
-  for (const a of lockedByRoom.values()) {
-    if (a.doctorId) doctorRoomCount.set(a.doctorId, (doctorRoomCount.get(a.doctorId) ?? 0) + 1);
-    a.taIds.forEach((id) => id && usedTAs.add(id));
-  }
-
   const conflicts: string[] = [];
 
-  const availableDoctors = () =>
-    staff
-      .filter((s) => s.role === "doctor" && s.workingDays.includes(day))
-      .filter((s) => (doctorRoomCount.get(s.id) ?? 0) < 2)
-      .sort((a, b) => {
-        const ac = (a.totalAssignments + (delta.get(a.id) ?? 0));
-        const bc = (b.totalAssignments + (delta.get(b.id) ?? 0));
-        if (ac !== bc) return ac - bc;
-        // prefer doctors already covering 1 room (shared) to maximize reuse fairness? No — prefer fresh
-        return Math.random() - 0.5;
-      });
+  const seedUsage = (assignment: Assignment) => {
+    if (assignment.chiefInvigilatorId) chiefRoomCount.set(assignment.chiefInvigilatorId, (chiefRoomCount.get(assignment.chiefInvigilatorId) ?? 0) + 1);
+    assignment.invigilatorIds.forEach((id) => id && usedInvigilators.add(id));
+  };
+  lockedByRoom.forEach(seedUsage);
 
-  const availableTAs = () =>
-    staff
-      .filter((s) => s.role === "ta" && s.workingDays.includes(day) && !usedTAs.has(s.id))
-      .sort((a, b) => {
-        const ac = (a.totalAssignments + (delta.get(a.id) ?? 0));
-        const bc = (b.totalAssignments + (delta.get(b.id) ?? 0));
-        if (ac !== bc) return ac - bc;
-        return Math.random() - 0.5;
-      });
+  const byFairLoad = (a: Staff, b: Staff) => (a.totalAssignments + (delta.get(a.id) ?? 0)) - (b.totalAssignments + (delta.get(b.id) ?? 0)) || a.name.localeCompare(b.name);
+  const availableChiefs = () => staff
+    .filter((person) => person.role === "CHIEF_INVIGILATOR" && person.workingDays.includes(day))
+    .filter((person) => (chiefRoomCount.get(person.id) ?? 0) < 2)
+    .sort(byFairLoad);
+  const availableInvigilators = () => staff
+    .filter((person) => person.role === "INVIGILATOR" && person.workingDays.includes(day) && !usedInvigilators.has(person.id))
+    .sort(byFairLoad);
 
   const assignments: Assignment[] = [];
 
@@ -62,69 +52,68 @@ export function generateSchedule({ roomIds, rooms, staff, day, existing = [] }: 
     if (!room) continue;
     const locked = lockedByRoom.get(roomId);
     if (locked) {
-      assignments.push(locked);
+      assignments.push(cloneAssignment(locked));
       continue;
     }
-    const needTAs = requiredTAs(room.capacity);
 
-    // Pick doctor
-    const docPool = availableDoctors();
-    const doctor = docPool[0] ?? null;
-    let doctorId: string | null = null;
-    if (doctor) {
-      doctorId = doctor.id;
-      doctorRoomCount.set(doctor.id, (doctorRoomCount.get(doctor.id) ?? 0) + 1);
-      delta.set(doctor.id, (delta.get(doctor.id) ?? 0) + 1);
-    } else {
-      conflicts.push(`No available doctor for ${room.name}`);
+    const previous = existingByRoom.get(roomId);
+    const next: Assignment = {
+      roomId,
+      slotId,
+      chiefInvigilatorId: previous?.chiefInvigilatorId ?? null,
+      invigilatorIds: previous ? [...previous.invigilatorIds] : Array.from({ length: room.minInvigilators }, () => null),
+      locked: false,
+    };
+
+    if (next.invigilatorIds.length < room.minInvigilators) {
+      next.invigilatorIds.push(...Array.from({ length: room.minInvigilators - next.invigilatorIds.length }, () => null));
     }
 
-    // Pick TAs
-    const taIds: (string | null)[] = [];
-    for (let i = 0; i < needTAs; i++) {
-      const taPool = availableTAs();
-      const ta = taPool[0] ?? null;
-      if (ta) {
-        taIds.push(ta.id);
-        usedTAs.add(ta.id);
-        delta.set(ta.id, (delta.get(ta.id) ?? 0) + 1);
+    const preValidation = validateSlotAssignments({ assignments: [...assignments, next], rooms, staff, day });
+    const chiefInvalid = !next.chiefInvigilatorId || preValidation.issues.some((issue) => issue.staffId === next.chiefInvigilatorId);
+    if (chiefInvalid) {
+      const chief = availableChiefs()[0] ?? null;
+      next.chiefInvigilatorId = chief?.id ?? null;
+      if (chief) {
+        chiefRoomCount.set(chief.id, (chiefRoomCount.get(chief.id) ?? 0) + 1);
+        delta.set(chief.id, (delta.get(chief.id) ?? 0) + 1);
       } else {
-        taIds.push(null);
-        conflicts.push(`Missing TA #${i + 1} for ${room.name}`);
+        conflicts.push(`No available Chief Invigilator for ${room.name}`);
       }
+    } else if (next.chiefInvigilatorId) {
+      chiefRoomCount.set(next.chiefInvigilatorId, (chiefRoomCount.get(next.chiefInvigilatorId) ?? 0) + 1);
     }
 
-    assignments.push({ roomId, doctorId, taIds, locked: false });
+    next.invigilatorIds = next.invigilatorIds.map((id, index) => {
+      const invalid = !id || usedInvigilators.has(id) || !staff.find((person) => person.id === id && person.role === "INVIGILATOR" && person.workingDays.includes(day));
+      if (!invalid) {
+        usedInvigilators.add(id);
+        return id;
+      }
+      const invigilator = availableInvigilators()[0] ?? null;
+      if (invigilator) {
+        usedInvigilators.add(invigilator.id);
+        delta.set(invigilator.id, (delta.get(invigilator.id) ?? 0) + 1);
+        return invigilator.id;
+      }
+      if (index < room.minInvigilators) conflicts.push(`Missing Invigilator #${index + 1} for ${room.name}`);
+      return null;
+    });
+
+    assignments.push(next);
   }
 
-  // Mark shared doctors
-  const sharedDocs = new Set<string>();
-  for (const [docId, count] of doctorRoomCount.entries()) if (count >= 2) sharedDocs.add(docId);
-  for (const a of assignments) if (a.doctorId && sharedDocs.has(a.doctorId)) a.sharedDoctor = true;
+  const sharedChiefs = new Set<string>();
+  for (const [id, count] of chiefRoomCount.entries()) if (count >= 2) sharedChiefs.add(id);
+  const finalAssignments = assignments.map((assignment) => ({
+    ...assignment,
+    sharedChief: !!(assignment.chiefInvigilatorId && sharedChiefs.has(assignment.chiefInvigilatorId)),
+  }));
+
+  const validation = validateSlotAssignments({ assignments: finalAssignments, rooms, staff, day });
+  validation.issues.forEach((issue) => conflicts.push(issue.message));
 
   const staffUpdates: Record<string, number> = {};
-  delta.forEach((v, k) => (staffUpdates[k] = v));
-  return { assignments, staffUpdates, conflicts };
-}
-
-// Best-fit candidates for manual override of one slot
-export function bestFitCandidates(opts: {
-  role: "doctor" | "ta";
-  day: Day;
-  staff: Staff[];
-  slotAssignments: Assignment[];
-  excludeId?: string | null;
-}) {
-  const { role, day, staff, slotAssignments, excludeId } = opts;
-  const usedTAs = new Set<string>();
-  const doctorRoomCount = new Map<string, number>();
-  for (const a of slotAssignments) {
-    if (a.doctorId) doctorRoomCount.set(a.doctorId, (doctorRoomCount.get(a.doctorId) ?? 0) + 1);
-    a.taIds.forEach((id) => id && usedTAs.add(id));
-  }
-  return staff
-    .filter((s) => s.role === role && s.workingDays.includes(day))
-    .filter((s) => s.id !== excludeId)
-    .filter((s) => (role === "doctor" ? (doctorRoomCount.get(s.id) ?? 0) < 2 : !usedTAs.has(s.id)))
-    .sort((a, b) => a.totalAssignments - b.totalAssignments);
+  delta.forEach((value, key) => (staffUpdates[key] = value));
+  return { assignments: finalAssignments, staffUpdates, conflicts: [...new Set(conflicts)] };
 }

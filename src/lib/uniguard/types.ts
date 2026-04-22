@@ -1,7 +1,7 @@
 export type Day = "Sun" | "Mon" | "Tue" | "Wed" | "Thu";
 export const DAYS: Day[] = ["Sun", "Mon", "Tue", "Wed", "Thu"];
 
-export type Role = "doctor" | "ta";
+export type Role = "CHIEF_INVIGILATOR" | "INVIGILATOR";
 
 export interface Staff {
   id: string;
@@ -16,28 +16,40 @@ export interface Room {
   id: string;
   name: string;
   capacity: number;
+  minInvigilators: number;
 }
 
 export interface Slot {
   id: string;
-  label: string; // "9:00 - 11:00"
+  date?: string;
+  startTime: string;
+  endTime: string;
+  subjectName: string;
+  subjectCode: string;
 }
 
 export interface Assignment {
   roomId: string;
-  doctorId: string | null;
-  taIds: (string | null)[]; // length 1 or 2
+  slotId: string;
+  chiefInvigilatorId: string | null;
+  invigilatorIds: (string | null)[];
   locked: boolean;
-  sharedDoctor?: boolean; // doctor covers two rooms
-  subject?: string; // free-text exam subject
+  sharedChief?: boolean;
 }
 
 export interface ScheduleEntry {
-  date: string; // YYYY-MM-DD
+  date: string;
   slotId: string;
   day: Day;
   assignments: Assignment[];
+  lastGeneratedAssignments?: Assignment[];
 }
 
+export type AssignmentState = "VALID" | "INCOMPLETE" | "CONFLICT";
+
+export const minInvigilatorsForCapacity = (capacity: number) => (capacity >= 40 ? 2 : 1);
+export const roleLabel = (role: Role) => role === "CHIEF_INVIGILATOR" ? "Chief Invigilator" : "Invigilator";
+export const roleLabelAr = (role: Role) => role === "CHIEF_INVIGILATOR" ? "رئيس لجنة" : "مراقب";
+
 export const isLargeRoom = (capacity: number) => capacity >= 40;
-export const requiredTAs = (capacity: number) => (isLargeRoom(capacity) ? 2 : 1);
+export const requiredTAs = minInvigilatorsForCapacity;
