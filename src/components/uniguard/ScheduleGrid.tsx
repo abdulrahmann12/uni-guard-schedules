@@ -64,10 +64,10 @@ export function ScheduleGrid({ date, slotId }: Props) {
             <StateBadge state={validation.state} />
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Button variant="outline" size="sm" className="gap-2" onClick={() => toast[undoLastChange() ? "success" : "error"](undoLastChange ? "Last change undone" : "Nothing to undo")}>
+            <Button variant="outline" size="sm" className="gap-2" onClick={() => { const ok = undoLastChange(); toast[ok ? "success" : "error"](ok ? "Last change undone" : "Nothing to undo"); }}>
               <Undo2 className="h-3.5 w-3.5" /> Undo
             </Button>
-            <Button variant="outline" size="sm" className="gap-2" onClick={() => toast[resetSlotToGenerated(date, slotId) ? "success" : "error"](resetSlotToGenerated ? "Slot reset to last generated version" : "No generated baseline for this slot")}>
+            <Button variant="outline" size="sm" className="gap-2" onClick={() => { const ok = resetSlotToGenerated(date, slotId); toast[ok ? "success" : "error"](ok ? "Slot reset to last generated version" : "No generated baseline for this slot"); }}>
               <RotateCcw className="h-3.5 w-3.5" /> Reset slot
             </Button>
           </div>
