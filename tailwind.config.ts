@@ -42,6 +42,16 @@ export default {
           DEFAULT: "hsl(var(--warning))",
           foreground: "hsl(var(--warning-foreground))",
         },
+        chief: {
+          DEFAULT: "hsl(var(--chief))",
+          foreground: "hsl(var(--chief-foreground))",
+          soft: "hsl(var(--chief-soft))",
+        },
+        invigilator: {
+          DEFAULT: "hsl(var(--invigilator))",
+          foreground: "hsl(var(--invigilator-foreground))",
+          soft: "hsl(var(--invigilator-soft))",
+        },
         doctor: {
           DEFAULT: "hsl(var(--doctor))",
           foreground: "hsl(var(--doctor-foreground))",
