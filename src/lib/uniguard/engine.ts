@@ -63,6 +63,8 @@ export function generateSchedule({ roomIds, rooms, staff, day, slotId, existing 
       chiefInvigilatorId: previous?.chiefInvigilatorId ?? null,
       invigilatorIds: previous ? [...previous.invigilatorIds] : Array.from({ length: room.minInvigilators }, () => null),
       locked: false,
+      subjectName: previous?.subjectName,
+      subjectCode: previous?.subjectCode,
     };
 
     if (next.invigilatorIds.length < room.minInvigilators) {
