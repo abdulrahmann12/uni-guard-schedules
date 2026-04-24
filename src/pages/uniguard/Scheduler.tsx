@@ -15,7 +15,7 @@ import { ScheduleGrid } from "@/components/uniguard/ScheduleGrid";
 import { toast } from "sonner";
 import { ExportDialog } from "@/components/uniguard/ExportDialog";
 
-const slotLabel = (s: { startTime: string; endTime: string; subjectName: string; subjectCode: string }) => `${s.startTime} – ${s.endTime} · ${s.subjectCode}`;
+const slotLabel = (s: { startTime: string; endTime: string }) => `${s.startTime} – ${s.endTime}`;
 
 export default function Scheduler() {
   const { rooms, slots, generate, getEntry, updateSlot } = useUniGuard();
@@ -43,7 +43,7 @@ export default function Scheduler() {
           <StepCard step={1} title="Date & time slot" done={!!date}>
             <div className="space-y-3">
               <Popover><PopoverTrigger asChild><Button variant="outline" className={cn("w-full justify-start text-left font-normal", !date && "text-muted-foreground")}><CalendarIcon className="mr-2 h-4 w-4" />{date ? `${format(date, "PPP")} · ${day}` : "Pick a date"}</Button></PopoverTrigger><PopoverContent className="w-auto p-0" align="start"><Calendar mode="single" selected={date} onSelect={(d) => d && setDate(d)} initialFocus className="p-3 pointer-events-auto" /></PopoverContent></Popover>
-              <div className="grid grid-cols-1 gap-1.5">{slots.map((s) => <button key={s.id} onClick={() => setSlotId(s.id)} className={cn("rounded-md border px-2.5 py-2 text-xs font-medium transition-smooth text-left", slotId === s.id ? "border-primary bg-primary/5 text-primary" : "border-border hover:border-primary/40")}><div>{slotLabel(s)}</div><div className="text-[10px] text-muted-foreground truncate">{s.subjectName}</div></button>)}</div>
+              <div className="grid grid-cols-1 gap-1.5">{slots.map((s) => <button key={s.id} onClick={() => setSlotId(s.id)} className={cn("rounded-md border px-2.5 py-2 text-xs font-medium transition-smooth text-left", slotId === s.id ? "border-primary bg-primary/5 text-primary" : "border-border hover:border-primary/40")}><div>{slotLabel(s)}</div><div className="text-[10px] text-muted-foreground truncate">Multi-exam window</div></button>)}</div>
               <EditSlotDialog slot={slot} onSave={(patch) => { updateSlot(slot.id, patch); toast.success("Slot metadata updated"); }} />
             </div>
           </StepCard>
@@ -65,7 +65,7 @@ export default function Scheduler() {
 function EditSlotDialog({ slot, onSave }: { slot: any; onSave: (patch: any) => void }) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(slot);
-  return <Dialog open={open} onOpenChange={(o) => { setOpen(o); setDraft(slot); }}><DialogTrigger asChild><Button variant="outline" size="sm" className="w-full gap-2"><Settings2 className="h-3.5 w-3.5" /> Edit Slot</Button></DialogTrigger><DialogContent><DialogHeader><DialogTitle>Edit time slot metadata</DialogTitle></DialogHeader><div className="grid grid-cols-2 gap-3"><div><Label>Start time</Label><Input value={draft.startTime} onChange={(e) => setDraft({ ...draft, startTime: e.target.value })} /></div><div><Label>End time</Label><Input value={draft.endTime} onChange={(e) => setDraft({ ...draft, endTime: e.target.value })} /></div><div><Label>Subject name</Label><Input value={draft.subjectName} onChange={(e) => setDraft({ ...draft, subjectName: e.target.value })} /></div><div><Label>Subject code</Label><Input value={draft.subjectCode} onChange={(e) => setDraft({ ...draft, subjectCode: e.target.value })} /></div></div><DialogFooter><Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button><Button onClick={() => { onSave(draft); setOpen(false); }}>Save</Button></DialogFooter></DialogContent></Dialog>;
+  return <Dialog open={open} onOpenChange={(o) => { setOpen(o); setDraft(slot); }}><DialogTrigger asChild><Button variant="outline" size="sm" className="w-full gap-2"><Settings2 className="h-3.5 w-3.5" /> Edit time window</Button></DialogTrigger><DialogContent><DialogHeader><DialogTitle>Edit time slot</DialogTitle></DialogHeader><p className="text-xs text-muted-foreground">Subjects are now set per room — multiple exams can run in the same time window.</p><div className="grid grid-cols-2 gap-3"><div><Label>Start time</Label><Input value={draft.startTime} onChange={(e) => setDraft({ ...draft, startTime: e.target.value })} /></div><div><Label>End time</Label><Input value={draft.endTime} onChange={(e) => setDraft({ ...draft, endTime: e.target.value })} /></div></div><DialogFooter><Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button><Button onClick={() => { onSave(draft); setOpen(false); }}>Save</Button></DialogFooter></DialogContent></Dialog>;
 }
 
 function StepCard({ step, title, done, children }: { step: number; title: string; done?: boolean; children: React.ReactNode }) {
