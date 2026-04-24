@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useUniGuard, dayOfDate } from "@/lib/uniguard/store";
-import { Lock, Unlock, AlertTriangle, Users, GripVertical, Plus, Trash2, ShieldCheck, RotateCcw, Undo2, CheckCircle2, Clock3 } from "lucide-react";
+import { Lock, Unlock, AlertTriangle, Users, GripVertical, Plus, Trash2, RotateCcw, Undo2, CheckCircle2, Clock3, BookOpen, DoorOpen } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { AssignmentState, roleLabelAr } from "@/lib/uniguard/types";
@@ -9,6 +9,8 @@ import { StaffProfileDialog } from "./StaffProfileDialog";
 import { DndContext, DragEndEvent, PointerSensor, useDraggable, useDroppable, useSensor, useSensors } from "@dnd-kit/core";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 interface Props {
   date: string;
@@ -16,12 +18,14 @@ interface Props {
 }
 
 export function ScheduleGrid({ date, slotId }: Props) {
-  const { getEntry, rooms, staff, slots, manualAssign, toggleLock, swapInvigilators, addInvigilatorSlot, removeInvigilatorSlot, undoLastChange, resetSlotToGenerated, validateEntry, validateOne } = useUniGuard();
+  const { getEntry, rooms, staff, slots, manualAssign, toggleLock, swapInvigilators, addInvigilatorSlot, removeInvigilatorSlot, undoLastChange, resetSlotToGenerated, validateEntry, validateOne, updateAssignmentSubject, addRoomToSlot } = useUniGuard();
   const entry = getEntry(date, slotId);
   const slot = slots.find((s) => s.id === slotId);
   const day = dayOfDate(date);
   const [profileId, setProfileId] = useState<string | null>(null);
   const staffMap = useMemo(() => new Map(staff.map((s) => [s.id, s])), [staff]);
+  const usedRoomIds = useMemo(() => new Set(entry?.assignments.map((a) => a.roomId) ?? []), [entry]);
+  const availableRooms = useMemo(() => rooms.filter((r) => !usedRoomIds.has(r.id)), [rooms, usedRoomIds]);
   const avgLoad = useMemo(() => staff.reduce((sum, person) => sum + person.totalAssignments, 0) / Math.max(1, staff.length), [staff]);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
@@ -64,6 +68,29 @@ export function ScheduleGrid({ date, slotId }: Props) {
             <StateBadge state={validation.state} />
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            {availableRooms.length > 0 && (
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" size="sm" className="gap-2"><Plus className="h-3.5 w-3.5" /> Add room</Button>
+                </PopoverTrigger>
+                <PopoverContent align="end" className="w-64 p-2 bg-popover">
+                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium px-2 py-1">Add another exam to this slot</div>
+                  <div className="max-h-64 overflow-y-auto">
+                    {availableRooms.map((r) => (
+                      <button
+                        key={r.id}
+                        onClick={() => { addRoomToSlot(date, slotId, r.id); toast.success(`${r.name} added to this slot`); }}
+                        className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-accent transition-smooth text-left text-sm"
+                      >
+                        <DoorOpen className="h-3.5 w-3.5 text-muted-foreground" />
+                        <span className="flex-1">{r.name}</span>
+                        <span className="text-[10px] text-muted-foreground">cap {r.capacity}</span>
+                      </button>
+                    ))}
+                  </div>
+                </PopoverContent>
+              </Popover>
+            )}
             <Button variant="outline" size="sm" className="gap-2" onClick={() => { const ok = undoLastChange(); toast[ok ? "success" : "error"](ok ? "Last change undone" : "Nothing to undo"); }}>
               <Undo2 className="h-3.5 w-3.5" /> Undo
             </Button>
@@ -90,6 +117,11 @@ export function ScheduleGrid({ date, slotId }: Props) {
                       </div>
                       <StateBadge state={assignmentValidation.state} compact />
                     </div>
+                    <SubjectEditor
+                      name={assignment.subjectName ?? slot?.subjectName ?? ""}
+                      code={assignment.subjectCode ?? slot?.subjectCode ?? ""}
+                      onSave={(name, code) => { updateAssignmentSubject(date, slotId, assignment.roomId, { subjectName: name, subjectCode: code }); toast.success("Subject updated"); }}
+                    />
                     {assignmentValidation.issues.length > 0 && (
                       <div className="mt-2 space-y-1">
                         {assignmentValidation.issues.slice(0, 2).map((issue, i) => <div key={i} className="text-[11px] text-muted-foreground flex gap-1"><AlertTriangle className="h-3 w-3 text-warning shrink-0 mt-0.5" />{issue.message}</div>)}
@@ -220,4 +252,39 @@ function DroppableInvigilator({ roomId, idx, children }: { roomId: string; idx: 
 
 function initials(name: string) {
   return name.replace(/^Dr\.\s*/, "").split(" ").map((s) => s[0]).slice(0, 2).join("").toUpperCase();
+}
+
+function SubjectEditor({ name, code, onSave }: { name: string; code: string; onSave: (name: string, code: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [n, setN] = useState(name);
+  const [c, setC] = useState(code);
+  return (
+    <Popover open={open} onOpenChange={(o) => { setOpen(o); if (o) { setN(name); setC(code); } }}>
+      <PopoverTrigger asChild>
+        <button className="mt-2 w-full text-left rounded-md border border-border bg-muted/40 hover:bg-muted/60 transition-smooth px-2 py-1.5">
+          <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
+            <BookOpen className="h-3 w-3" /> Subject
+          </div>
+          <div className="text-xs font-medium truncate">{name || <span className="text-muted-foreground italic">Click to set subject</span>}</div>
+          {code && <div className="text-[10px] text-muted-foreground font-mono">{code}</div>}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-72 bg-popover" align="start">
+        <div className="space-y-2">
+          <div>
+            <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">Subject name</label>
+            <Input value={n} onChange={(e) => setN(e.target.value)} placeholder="e.g. Algorithms" />
+          </div>
+          <div>
+            <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">Subject code</label>
+            <Input value={c} onChange={(e) => setC(e.target.value)} placeholder="e.g. CS301" />
+          </div>
+          <div className="flex justify-end gap-2 pt-1">
+            <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>Cancel</Button>
+            <Button size="sm" onClick={() => { onSave(n.trim(), c.trim()); setOpen(false); }}>Save</Button>
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
 }

@@ -24,8 +24,10 @@ export interface Slot {
   date?: string;
   startTime: string;
   endTime: string;
-  subjectName: string;
-  subjectCode: string;
+  /** @deprecated Subjects are stored on each Assignment for multi-exam support. Kept as a default suggestion only. */
+  subjectName?: string;
+  /** @deprecated See subjectName. */
+  subjectCode?: string;
 }
 
 export interface Assignment {
@@ -35,6 +37,8 @@ export interface Assignment {
   invigilatorIds: (string | null)[];
   locked: boolean;
   sharedChief?: boolean;
+  subjectName?: string;
+  subjectCode?: string;
 }
 
 export interface ScheduleEntry {

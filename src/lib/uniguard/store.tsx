@@ -20,6 +20,8 @@ interface Ctx {
   manualAssign: (date: string, slotId: string, roomId: string, kind: "chief" | "invigilator", index: number, staffId: string | null) => { ok: boolean; message?: string };
   addInvigilatorSlot: (date: string, slotId: string, roomId: string) => void;
   removeInvigilatorSlot: (date: string, slotId: string, roomId: string, index: number) => void;
+  updateAssignmentSubject: (date: string, slotId: string, roomId: string, patch: { subjectName?: string; subjectCode?: string }) => void;
+  addRoomToSlot: (date: string, slotId: string, roomId: string) => void;
   swapInvigilators: (date: string, slotId: string, fromRoomId: string, fromIdx: number, toRoomId: string, toIdx: number) => void;
   undoLastChange: () => boolean;
   resetSlotToGenerated: (date: string, slotId: string) => boolean;
@@ -84,7 +86,8 @@ export function UniGuardProvider({ children }: { children: ReactNode }) {
   const generate: Ctx["generate"] = ({ date, slotId, roomIds, partial }) => {
     const day = dayOfDate(date);
     const existing = partial ? getEntry(date, slotId)?.assignments ?? [] : [];
-    const { assignments, conflicts } = generateSchedule({ roomIds, rooms, staff, day, slotId, existing });
+    const slot = slots.find((s) => s.id === slotId);
+    const { assignments, conflicts } = generateSchedule({ roomIds, rooms, staff, day, slotId, existing, defaultSubject: { subjectName: slot?.subjectName, subjectCode: slot?.subjectCode } });
     applySchedule((prev) => {
       const filtered = prev.filter((e) => !(e.date === date && e.slotId === slotId));
       const generated = assignments.map(cloneAssignment);
@@ -120,6 +123,23 @@ export function UniGuardProvider({ children }: { children: ReactNode }) {
 
   const removeInvigilatorSlot: Ctx["removeInvigilatorSlot"] = (date, slotId, roomId, index) => {
     applySchedule((prev) => prev.map((e) => e.date === date && e.slotId === slotId ? { ...e, assignments: e.assignments.map((a) => a.roomId === roomId ? { ...a, invigilatorIds: a.invigilatorIds.filter((_, i) => i !== index) } : a) } : e));
+  };
+
+  const updateAssignmentSubject: Ctx["updateAssignmentSubject"] = (date, slotId, roomId, patch) => {
+    applySchedule((prev) => prev.map((e) => e.date === date && e.slotId === slotId ? { ...e, assignments: e.assignments.map((a) => a.roomId === roomId ? { ...a, ...patch } : a) } : e));
+  };
+
+  const addRoomToSlot: Ctx["addRoomToSlot"] = (date, slotId, roomId) => {
+    const day = dayOfDate(date);
+    const room = rooms.find((r) => r.id === roomId);
+    if (!room) return;
+    applySchedule((prev) => {
+      const existing = prev.find((e) => e.date === date && e.slotId === slotId);
+      const newAssignment: Assignment = { roomId, slotId, chiefInvigilatorId: null, invigilatorIds: Array.from({ length: room.minInvigilators }, () => null), locked: false };
+      if (!existing) return [...prev, { date, slotId, day, assignments: [newAssignment] }];
+      if (existing.assignments.some((a) => a.roomId === roomId)) return prev;
+      return prev.map((e) => e === existing ? { ...e, assignments: [...e.assignments, newAssignment] } : e);
+    });
   };
 
   const swapInvigilators: Ctx["swapInvigilators"] = (date, slotId, fromRoomId, fromIdx, toRoomId, toIdx) => {
@@ -163,7 +183,7 @@ export function UniGuardProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<Ctx>(() => ({
     staff, rooms, slots, schedule, setStaffWorkingDays, addStaff, removeStaff, addRoom, removeRoom, updateSlot, generate, toggleLock, manualAssign,
-    addInvigilatorSlot, removeInvigilatorSlot, swapInvigilators, undoLastChange, resetSlotToGenerated, getEntry, validateEntry, validateOne,
+    addInvigilatorSlot, removeInvigilatorSlot, updateAssignmentSubject, addRoomToSlot, swapInvigilators, undoLastChange, resetSlotToGenerated, getEntry, validateEntry, validateOne,
   }), [staff, rooms, slots, schedule, getEntry]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

@@ -26,7 +26,9 @@ export function StaffProfileDialog({ staffId, open, onOpenChange }: Props) {
       for (const a of e.assignments) {
         const room = rooms.find((r) => r.id === a.roomId);
         const slot = slots.find((s) => s.id === e.slotId);
-        const subject = slot ? `${slot.subjectName} (${slot.subjectCode})` : "";
+        const sName = a.subjectName ?? slot?.subjectName ?? "";
+        const sCode = a.subjectCode ?? slot?.subjectCode ?? "";
+        const subject = sName ? `${sName}${sCode ? ` (${sCode})` : ""}` : "";
         if (a.chiefInvigilatorId === person.id) out.push({ date: e.date, day: e.day, slotLabel: timeLabel(slot), roomName: room?.name ?? "", role: "Chief Invigilator", subject });
         a.invigilatorIds.forEach((id, i) => {
           if (id === person.id) out.push({ date: e.date, day: e.day, slotLabel: timeLabel(slot), roomName: room?.name ?? "", role: `Invigilator #${i + 1}`, subject });
