@@ -86,7 +86,8 @@ export function UniGuardProvider({ children }: { children: ReactNode }) {
   const generate: Ctx["generate"] = ({ date, slotId, roomIds, partial }) => {
     const day = dayOfDate(date);
     const existing = partial ? getEntry(date, slotId)?.assignments ?? [] : [];
-    const { assignments, conflicts } = generateSchedule({ roomIds, rooms, staff, day, slotId, existing });
+    const slot = slots.find((s) => s.id === slotId);
+    const { assignments, conflicts } = generateSchedule({ roomIds, rooms, staff, day, slotId, existing, defaultSubject: { subjectName: slot?.subjectName, subjectCode: slot?.subjectCode } });
     applySchedule((prev) => {
       const filtered = prev.filter((e) => !(e.date === date && e.slotId === slotId));
       const generated = assignments.map(cloneAssignment);

@@ -1,4 +1,4 @@
-import { Assignment, Day, Room, Staff } from "./types";
+import { Assignment, Day, Room, Slot, Staff } from "./types";
 import { validateSlotAssignments } from "./constraintEngine";
 
 interface GenerateInput {
@@ -8,6 +8,7 @@ interface GenerateInput {
   day: Day;
   slotId: string;
   existing?: Assignment[];
+  defaultSubject?: { subjectName?: string; subjectCode?: string };
 }
 
 interface GenerateResult {
@@ -21,7 +22,7 @@ const cloneAssignment = (assignment: Assignment): Assignment => ({
   invigilatorIds: [...assignment.invigilatorIds],
 });
 
-export function generateSchedule({ roomIds, rooms, staff, day, slotId, existing = [] }: GenerateInput): GenerateResult {
+export function generateSchedule({ roomIds, rooms, staff, day, slotId, existing = [], defaultSubject }: GenerateInput): GenerateResult {
   const roomMap = new Map(rooms.map((room) => [room.id, room]));
   const existingByRoom = new Map(existing.map((assignment) => [assignment.roomId, assignment]));
   const lockedByRoom = new Map(existing.filter((assignment) => assignment.locked).map((assignment) => [assignment.roomId, assignment]));
@@ -63,8 +64,8 @@ export function generateSchedule({ roomIds, rooms, staff, day, slotId, existing 
       chiefInvigilatorId: previous?.chiefInvigilatorId ?? null,
       invigilatorIds: previous ? [...previous.invigilatorIds] : Array.from({ length: room.minInvigilators }, () => null),
       locked: false,
-      subjectName: previous?.subjectName,
-      subjectCode: previous?.subjectCode,
+      subjectName: previous?.subjectName ?? defaultSubject?.subjectName,
+      subjectCode: previous?.subjectCode ?? defaultSubject?.subjectCode,
     };
 
     if (next.invigilatorIds.length < room.minInvigilators) {
