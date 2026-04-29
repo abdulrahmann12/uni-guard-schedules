@@ -1,95 +1,172 @@
-import { useRef, useState } from "react";
+import { useEffect, useState } from "react";
+import { Moon, Save, Sun } from "lucide-react";
+
+import type { SettingsRequest, ThemeMode } from "@/api";
+import { ErrorState, LoadingState } from "@/components/app/PageState";
 import { AppLayout } from "@/components/uniguard/AppLayout";
-import { useBranding } from "@/lib/branding/BrandingProvider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Upload, RotateCcw, Sun, Moon, Trash2 } from "lucide-react";
+import { useSettingsQuery, useUpdateSettingsMutation } from "@/hooks";
+import { getErrorMessage } from "@/utils/error";
 import { toast } from "sonner";
 
-export default function Settings() {
-  const { appName, appTagline, university, department, examPeriod, logoDataUrl, theme, toggleTheme, updateBranding, resetBranding } = useBranding();
-  const [draft, setDraft] = useState({ appName, appTagline, university, department, examPeriod });
-  const fileRef = useRef<HTMLInputElement>(null);
+const DEFAULT_SETTINGS_FORM: SettingsRequest = {
+  systemName: "",
+  appTagline: "",
+  logoUrl: null,
+  theme: "LIGHT",
+  universityName: "",
+  department: "",
+  examPeriod: "",
+};
 
-  const onUpload = (file: File) => {
-    if (!file.type.startsWith("image/")) return toast.error("Please upload an image file");
-    if (file.size > 1024 * 1024) return toast.error("Logo must be under 1MB");
-    const reader = new FileReader();
-    reader.onload = () => {
-      updateBranding({ logoDataUrl: reader.result as string });
-      toast.success("Logo updated");
-    };
-    reader.readAsDataURL(file);
-  };
+export default function Settings() {
+  const settingsQuery = useSettingsQuery();
+  const updateMutation = useUpdateSettingsMutation();
+  const [formState, setFormState] = useState<SettingsRequest>(DEFAULT_SETTINGS_FORM);
+
+  useEffect(() => {
+    if (!settingsQuery.data) {
+      return;
+    }
+
+    setFormState({
+      systemName: settingsQuery.data.systemName,
+      appTagline: settingsQuery.data.appTagline ?? "",
+      logoUrl: settingsQuery.data.logoUrl,
+      theme: settingsQuery.data.theme,
+      universityName: settingsQuery.data.universityName,
+      department: settingsQuery.data.department ?? "",
+      examPeriod: settingsQuery.data.examPeriod,
+    });
+  }, [settingsQuery.data]);
+
+  if (settingsQuery.isLoading) {
+    return (
+      <AppLayout title="Settings" subtitle="Customize your branding, theme, and exported document headers.">
+        <LoadingState title="Loading settings..." description="Fetching backend branding and appearance settings." />
+      </AppLayout>
+    );
+  }
+
+  if (settingsQuery.isError) {
+    return (
+      <AppLayout title="Settings" subtitle="Customize your branding, theme, and exported document headers.">
+        <ErrorState description={getErrorMessage(settingsQuery.error)} onRetry={() => void settingsQuery.refetch()} />
+      </AppLayout>
+    );
+  }
+
+  async function handleSave() {
+    try {
+      await updateMutation.mutateAsync({
+        systemName: formState.systemName.trim(),
+        appTagline: formState.appTagline?.trim() || undefined,
+        logoUrl: formState.logoUrl?.trim() || null,
+        theme: formState.theme,
+        universityName: formState.universityName.trim(),
+        department: formState.department?.trim() || null,
+        examPeriod: formState.examPeriod.trim(),
+      });
+      toast.success("Settings updated.");
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    }
+  }
 
   return (
     <AppLayout title="Settings" subtitle="Customize your branding, theme, and exported document headers.">
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 max-w-5xl">
-        <section className="rounded-xl border border-border bg-card shadow-card p-6 space-y-5">
+      <div className="grid max-w-5xl grid-cols-1 gap-6 lg:grid-cols-2">
+        <section className="space-y-5 rounded-xl border border-border bg-card p-6 shadow-card">
           <header>
             <h3 className="text-display text-lg font-semibold">Brand identity</h3>
-            <p className="text-sm text-muted-foreground">These settings appear in the navbar, sidebar, and exported documents.</p>
+            <p className="text-sm text-muted-foreground">These settings appear in the sidebar, navbar, and exported documents.</p>
           </header>
 
           <div>
-            <Label className="mb-2 block">Logo</Label>
-            <div className="flex items-center gap-4">
-              <div className="h-16 w-16 rounded-xl border border-dashed border-border bg-muted/40 grid place-items-center overflow-hidden">
-                {logoDataUrl ? <img src={logoDataUrl} alt="Brand logo" className="h-full w-full object-contain" /> : <span className="text-[10px] text-muted-foreground text-center px-1">No logo</span>}
-              </div>
-              <div className="flex flex-col gap-2">
-                <input ref={fileRef} type="file" accept="image/*" hidden onChange={(e) => e.target.files?.[0] && onUpload(e.target.files[0])} />
-                <Button variant="outline" size="sm" className="gap-2" onClick={() => fileRef.current?.click()}><Upload className="h-3.5 w-3.5" /> Upload logo</Button>
-                {logoDataUrl && <Button variant="ghost" size="sm" className="gap-2 text-destructive" onClick={() => updateBranding({ logoDataUrl: null })}><Trash2 className="h-3.5 w-3.5" /> Remove</Button>}
-                <p className="text-[11px] text-muted-foreground">PNG/SVG, &lt; 1MB recommended.</p>
-              </div>
-            </div>
+            <Label>System name</Label>
+            <Input value={formState.systemName} onChange={(event) => setFormState((previous) => ({ ...previous, systemName: event.target.value }))} />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div><Label>System name</Label><Input value={draft.appName} onChange={(e) => setDraft({ ...draft, appName: e.target.value })} /></div>
-            <div><Label>Tagline</Label><Input value={draft.appTagline} onChange={(e) => setDraft({ ...draft, appTagline: e.target.value })} /></div>
+          <div>
+            <Label>Tagline</Label>
+            <Input value={formState.appTagline ?? ""} onChange={(event) => setFormState((previous) => ({ ...previous, appTagline: event.target.value }))} />
           </div>
 
-          <div className="flex items-center gap-2 pt-1">
-            <Button onClick={() => { updateBranding(draft); toast.success("Branding saved"); }}>Save changes</Button>
-            <Button variant="outline" className="gap-2" onClick={() => { resetBranding(); setDraft({ appName: "InvigiCore", appTagline: "Smart Exam Invigilation", university: "Cairo University", department: "Faculty of Engineering", examPeriod: "Final Exams — Spring 2026" }); toast.success("Branding reset"); }}><RotateCcw className="h-3.5 w-3.5" /> Reset</Button>
+          <div>
+            <Label>Logo URL</Label>
+            <Input value={formState.logoUrl ?? ""} onChange={(event) => setFormState((previous) => ({ ...previous, logoUrl: event.target.value || null }))} placeholder="https://example.com/logo.png" />
           </div>
         </section>
 
-        <section className="rounded-xl border border-border bg-card shadow-card p-6 space-y-5">
+        <section className="space-y-5 rounded-xl border border-border bg-card p-6 shadow-card">
           <header>
             <h3 className="text-display text-lg font-semibold">Appearance</h3>
-            <p className="text-sm text-muted-foreground">Choose your preferred theme. The setting is saved on this device.</p>
+            <p className="text-sm text-muted-foreground">Choose the theme stored on the backend for the application shell.</p>
           </header>
           <div className="grid grid-cols-2 gap-3">
-            <button onClick={() => theme === "dark" && toggleTheme()} className={`rounded-lg border p-4 text-left transition-smooth ${theme === "light" ? "border-primary bg-primary/5" : "border-border"}`}>
-              <Sun className="h-5 w-5 mb-2" />
-              <div className="text-sm font-semibold">Light</div>
-              <div className="text-[11px] text-muted-foreground">Crisp daylight UI</div>
-            </button>
-            <button onClick={() => theme === "light" && toggleTheme()} className={`rounded-lg border p-4 text-left transition-smooth ${theme === "dark" ? "border-primary bg-primary/5" : "border-border"}`}>
-              <Moon className="h-5 w-5 mb-2" />
-              <div className="text-sm font-semibold">Dark</div>
-              <div className="text-[11px] text-muted-foreground">Low-light, high contrast</div>
-            </button>
+            <ThemeCard current={formState.theme} value="LIGHT" title="Light" description="Bright workspace for daytime operations." icon={Sun} onSelect={(nextTheme) => setFormState((previous) => ({ ...previous, theme: nextTheme }))} />
+            <ThemeCard current={formState.theme} value="DARK" title="Dark" description="Low-light mode for long scheduling sessions." icon={Moon} onSelect={(nextTheme) => setFormState((previous) => ({ ...previous, theme: nextTheme }))} />
           </div>
         </section>
 
-        <section className="rounded-xl border border-border bg-card shadow-card p-6 space-y-5 lg:col-span-2">
+        <section className="space-y-5 rounded-xl border border-border bg-card p-6 shadow-card lg:col-span-2">
           <header>
             <h3 className="text-display text-lg font-semibold">Exported document header</h3>
             <p className="text-sm text-muted-foreground">Used as the header of every PDF and Excel export.</p>
           </header>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <div><Label>University</Label><Input value={draft.university} onChange={(e) => setDraft({ ...draft, university: e.target.value })} /></div>
-            <div><Label>Department / Faculty</Label><Input value={draft.department} onChange={(e) => setDraft({ ...draft, department: e.target.value })} /></div>
-            <div><Label>Exam period</Label><Input value={draft.examPeriod} onChange={(e) => setDraft({ ...draft, examPeriod: e.target.value })} /></div>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+            <div>
+              <Label>University</Label>
+              <Input value={formState.universityName} onChange={(event) => setFormState((previous) => ({ ...previous, universityName: event.target.value }))} />
+            </div>
+            <div>
+              <Label>Department / Faculty</Label>
+              <Input value={formState.department ?? ""} onChange={(event) => setFormState((previous) => ({ ...previous, department: event.target.value }))} />
+            </div>
+            <div>
+              <Label>Exam period</Label>
+              <Input value={formState.examPeriod} onChange={(event) => setFormState((previous) => ({ ...previous, examPeriod: event.target.value }))} />
+            </div>
           </div>
-          <Button onClick={() => { updateBranding(draft); toast.success("Document header saved"); }}>Save document header</Button>
+
+          <div className="rounded-xl bg-gradient-hero p-5 text-primary-foreground shadow-elevated">
+            <div className="text-xs opacity-90">{formState.universityName || "University"}</div>
+            <div className="mt-1 text-2xl font-bold">{formState.systemName || "System name"}</div>
+            <div className="text-sm opacity-90">{formState.appTagline || "Tagline"}</div>
+            <div className="mt-4 text-xs opacity-90">{formState.department || "Department"} · {formState.examPeriod || "Exam period"}</div>
+          </div>
+
+          <Button className="gap-2" disabled={updateMutation.isPending || !formState.systemName.trim() || !formState.universityName.trim() || !formState.examPeriod.trim()} onClick={() => void handleSave()}>
+            <Save className="h-4 w-4" /> {updateMutation.isPending ? "Saving..." : "Save settings"}
+          </Button>
         </section>
       </div>
     </AppLayout>
+  );
+}
+
+function ThemeCard({
+  current,
+  value,
+  title,
+  description,
+  icon: Icon,
+  onSelect,
+}: {
+  current: ThemeMode;
+  value: ThemeMode;
+  title: string;
+  description: string;
+  icon: typeof Sun;
+  onSelect: (theme: ThemeMode) => void;
+}) {
+  return (
+    <button onClick={() => onSelect(value)} className={`rounded-lg border p-4 text-left transition-smooth ${current === value ? "border-primary bg-primary/5" : "border-border"}`}>
+      <Icon className="mb-2 h-5 w-5" />
+      <div className="text-sm font-semibold">{title}</div>
+      <div className="text-[11px] text-muted-foreground">{description}</div>
+    </button>
   );
 }

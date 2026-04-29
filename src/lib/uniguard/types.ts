@@ -1,5 +1,5 @@
-export type Day = "Sun" | "Mon" | "Tue" | "Wed" | "Thu";
-export const DAYS: Day[] = ["Sun", "Mon", "Tue", "Wed", "Thu"];
+export type Day = "Sun" | "Mon" | "Tue" | "Wed" | "Thu" | "Fri" | "Sat";
+export const DAYS: Day[] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 export type Role = "CHIEF_INVIGILATOR" | "INVIGILATOR";
 
@@ -21,6 +21,8 @@ export interface Room {
 
 export interface Slot {
   id: string;
+  label?: string;
+  sortOrder?: number;
   date?: string;
   startTime: string;
   endTime: string;

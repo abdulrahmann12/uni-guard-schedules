@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { ErrorState, LoadingState } from "@/components/app/PageState";
 import { AppLayout } from "@/components/uniguard/AppLayout";
 import { useUniGuard } from "@/lib/uniguard/store";
 import { Input } from "@/components/ui/input";
@@ -9,14 +10,32 @@ import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { StaffProfileDialog } from "@/components/uniguard/StaffProfileDialog";
 import { ExportDialog } from "@/components/uniguard/ExportDialog";
+import { getErrorMessage } from "@/utils/error";
 
 const timeLabel = (slot?: { startTime: string; endTime: string }) => slot ? `${slot.startTime} – ${slot.endTime}` : "—";
 
 export default function Timeline() {
-  const { schedule, staff, rooms, slots } = useUniGuard();
+  const { schedule, staff, rooms, slots, isLoading, error } = useUniGuard();
   const [query, setQuery] = useState("");
   const [profileId, setProfileId] = useState<string | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
+
+  if (isLoading) {
+    return (
+      <AppLayout title="Master Timeline" subtitle="Every scheduled exam, grouped by day. Search by staff name or subject code.">
+        <LoadingState title="Loading timeline..." description="Fetching saved schedule data from the backend." />
+      </AppLayout>
+    );
+  }
+
+  if (error) {
+    return (
+      <AppLayout title="Master Timeline" subtitle="Every scheduled exam, grouped by day. Search by staff name or subject code.">
+        <ErrorState description={getErrorMessage(error)} />
+      </AppLayout>
+    );
+  }
+
   const staffMap = useMemo(() => new Map(staff.map((s) => [s.id, s])), [staff]);
   const roomMap = useMemo(() => new Map(rooms.map((r) => [r.id, r])), [rooms]);
   const slotMap = useMemo(() => new Map(slots.map((s) => [s.id, s])), [slots]);

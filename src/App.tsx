@@ -1,41 +1,26 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { BrowserRouter } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { UniGuardProvider } from "@/lib/uniguard/store";
 import { BrandingProvider } from "@/lib/branding/BrandingProvider";
-import Index from "./pages/Index.tsx";
-import Scheduler from "./pages/uniguard/Scheduler";
-import People from "./pages/uniguard/People";
-import Rooms from "./pages/uniguard/Rooms";
-import Timeline from "./pages/uniguard/Timeline";
-import Settings from "./pages/uniguard/Settings";
-import NotFound from "./pages/NotFound.tsx";
-
-const queryClient = new QueryClient();
+import { AppRoutes } from "@/routes/AppRoutes";
+import { AuthProvider } from "@/state/auth";
+import { queryClient } from "@/state/queryClient";
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
-    <BrandingProvider>
-      <TooltipProvider>
-        <Toaster />
-        <Sonner position="top-right" />
-        <UniGuardProvider>
-          <BrowserRouter>
-            <Routes>
-              <Route path="/" element={<Index />} />
-              <Route path="/scheduler" element={<Scheduler />} />
-              <Route path="/timeline" element={<Timeline />} />
-              <Route path="/people" element={<People />} />
-              <Route path="/rooms" element={<Rooms />} />
-              <Route path="/settings" element={<Settings />} />
-              <Route path="*" element={<NotFound />} />
-            </Routes>
-          </BrowserRouter>
-        </UniGuardProvider>
-      </TooltipProvider>
-    </BrandingProvider>
+    <BrowserRouter>
+      <AuthProvider>
+        <BrandingProvider>
+          <TooltipProvider>
+            <Toaster />
+            <Sonner position="top-right" />
+            <AppRoutes />
+          </TooltipProvider>
+        </BrandingProvider>
+      </AuthProvider>
+    </BrowserRouter>
   </QueryClientProvider>
 );
 

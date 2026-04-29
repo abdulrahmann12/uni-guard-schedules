@@ -1,14 +1,62 @@
-import { createContext, useContext, useMemo, useState, ReactNode, useCallback } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+
+import type {
+  Assignment as ApiAssignment,
+  BulkAssignmentRequest,
+  Person,
+  Room as ApiRoom,
+  TimeSlot as ApiTimeSlot,
+} from "@/api";
+import { useAssignmentsQuery, usePeopleQuery, useRoomsQuery, useTimeSlotsQuery } from "@/hooks";
+import { queryKeys } from "@/hooks/queryKeys";
+import { assignmentsService, timeSlotsService } from "@/services";
+import { getErrorMessage } from "@/utils/error";
+import { unwrapServiceResponse } from "@/utils/serviceResponse";
+
 import { Assignment, Day, DAYS, Room, ScheduleEntry, Slot, Staff, minInvigilatorsForCapacity } from "./types";
-import { seedRooms, seedStaff, SLOTS } from "./mockData";
 import { generateSchedule } from "./engine";
 import { validateAssignment, validateSlotAssignments } from "./constraintEngine";
+
+const PEOPLE_QUERY_PARAMS = {
+  page: 0,
+  size: 1000,
+  sortBy: "name",
+  direction: "ASC",
+} as const;
+
+const ROOMS_QUERY_PARAMS = {
+  page: 0,
+  size: 1000,
+  sortBy: "name",
+  direction: "ASC",
+} as const;
+
+const SLOT_QUERY_PARAMS = {
+  page: 0,
+  size: 100,
+  sortBy: "sortOrder",
+  direction: "ASC",
+  activeOnly: true,
+} as const;
+
+const ASSIGNMENTS_QUERY_PARAMS = {
+  page: 0,
+  size: 1000,
+  sortBy: "examDate",
+  direction: "ASC",
+} as const;
 
 interface Ctx {
   staff: Staff[];
   rooms: Room[];
   slots: Slot[];
   schedule: ScheduleEntry[];
+  isLoading: boolean;
+  isPersisting: boolean;
+  error: unknown;
+  isEntryDirty: (date: string, slotId: string) => boolean;
   setStaffWorkingDays: (id: string, days: Day[]) => void;
   addStaff: (s: Omit<Staff, "id" | "totalAssignments">) => void;
   removeStaff: (id: string) => void;
@@ -23,6 +71,7 @@ interface Ctx {
   updateAssignmentSubject: (date: string, slotId: string, roomId: string, patch: { subjectName?: string; subjectCode?: string }) => void;
   addRoomToSlot: (date: string, slotId: string, roomId: string) => void;
   swapInvigilators: (date: string, slotId: string, fromRoomId: string, fromIdx: number, toRoomId: string, toIdx: number) => void;
+  saveEntry: (date: string, slotId: string) => Promise<boolean>;
   undoLastChange: () => boolean;
   resetSlotToGenerated: (date: string, slotId: string) => boolean;
   getEntry: (date: string, slotId: string) => ScheduleEntry | undefined;
@@ -32,6 +81,218 @@ interface Ctx {
 
 const Ctx = createContext<Ctx | null>(null);
 
+function normalizeTimeValue(value: string): string {
+  if (value.length === 5) {
+    return `${value}:00`;
+  }
+
+  return value;
+}
+
+function formatLocalTime(value: string): string {
+  return value.length >= 5 ? value.slice(0, 5) : value;
+}
+
+function cloneAssignment(assignment: Assignment): Assignment {
+  return {
+    ...assignment,
+    invigilatorIds: [...assignment.invigilatorIds],
+  };
+}
+
+function cloneEntry(entry: ScheduleEntry): ScheduleEntry {
+  return {
+    ...entry,
+    assignments: entry.assignments.map(cloneAssignment),
+    lastGeneratedAssignments: entry.lastGeneratedAssignments?.map(cloneAssignment),
+  };
+}
+
+function cloneSchedule(entries: ScheduleEntry[]): ScheduleEntry[] {
+  return entries.map(cloneEntry);
+}
+
+function withSharedFlags(assignments: Assignment[]): Assignment[] {
+  const counts = new Map<string, number>();
+
+  assignments.forEach((assignment) => {
+    if (assignment.chiefInvigilatorId) {
+      counts.set(assignment.chiefInvigilatorId, (counts.get(assignment.chiefInvigilatorId) ?? 0) + 1);
+    }
+  });
+
+  return assignments.map((assignment) => ({
+    ...assignment,
+    sharedChief: Boolean(
+      assignment.chiefInvigilatorId && (counts.get(assignment.chiefInvigilatorId) ?? 0) >= 2,
+    ),
+  }));
+}
+
+function toStaff(person: Person): Staff {
+  return {
+    id: person.id,
+    name: person.name,
+    role: person.role,
+    department: person.department,
+    workingDays: person.availableDays,
+    totalAssignments: person.totalAssignments,
+  };
+}
+
+function toRoom(room: ApiRoom): Room {
+  return {
+    id: room.id,
+    name: room.name,
+    capacity: room.capacity,
+    minInvigilators: room.minInvigilators,
+  };
+}
+
+function toSlot(slot: ApiTimeSlot): Slot {
+  return {
+    id: slot.id,
+    label: slot.label,
+    sortOrder: slot.sortOrder,
+    startTime: formatLocalTime(slot.startTime),
+    endTime: formatLocalTime(slot.endTime),
+  };
+}
+
+function toLocalAssignment(assignment: ApiAssignment, roomMap: Map<string, Room>): Assignment {
+  const orderedInvigilators = [...assignment.invigilators].sort(
+    (left, right) => left.positionIndex - right.positionIndex,
+  );
+  const invigilatorIds = orderedInvigilators.map((invigilator) => invigilator.invigilatorId);
+  const room = roomMap.get(assignment.roomId);
+
+  if (room && invigilatorIds.length < room.minInvigilators) {
+    invigilatorIds.push(...Array.from({ length: room.minInvigilators - invigilatorIds.length }, () => null));
+  }
+
+  return {
+    roomId: assignment.roomId,
+    slotId: assignment.timeSlotId,
+    chiefInvigilatorId: assignment.chiefInvigilatorId,
+    invigilatorIds,
+    locked: assignment.locked,
+    subjectName: assignment.subjectName ?? undefined,
+    subjectCode: assignment.subjectCode ?? undefined,
+  };
+}
+
+function toScheduleEntries(assignments: ApiAssignment[], rooms: Room[]): ScheduleEntry[] {
+  const roomMap = new Map(rooms.map((room) => [room.id, room]));
+  const grouped = new Map<string, ScheduleEntry>();
+
+  assignments.forEach((assignment) => {
+    const key = `${assignment.examDate}::${assignment.timeSlotId}`;
+    const existing = grouped.get(key);
+    const nextAssignment = toLocalAssignment(assignment, roomMap);
+
+    if (existing) {
+      existing.assignments.push(nextAssignment);
+      return;
+    }
+
+    grouped.set(key, {
+      date: assignment.examDate,
+      slotId: assignment.timeSlotId,
+      day: dayOfDate(assignment.examDate),
+      assignments: [nextAssignment],
+    });
+  });
+
+  return [...grouped.values()]
+    .map((entry) => {
+      const sharedAssignments = withSharedFlags(entry.assignments);
+      return {
+        ...entry,
+        assignments: sharedAssignments,
+        lastGeneratedAssignments: sharedAssignments.map(cloneAssignment),
+      };
+    })
+    .sort((left, right) => {
+      if (left.date !== right.date) {
+        return left.date.localeCompare(right.date);
+      }
+
+      return left.slotId.localeCompare(right.slotId);
+    });
+}
+
+function normalizeText(value?: string | null): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
+function toBulkAssignmentRequest(date: string, assignment: Assignment): BulkAssignmentRequest {
+  return {
+    examDate: date,
+    roomId: assignment.roomId,
+    slotId: assignment.slotId,
+    subjectName: normalizeText(assignment.subjectName),
+    subjectCode: normalizeText(assignment.subjectCode),
+    chiefInvigilatorId: assignment.chiefInvigilatorId,
+    isLocked: assignment.locked,
+    invigilatorIds: assignment.invigilatorIds,
+  };
+}
+
+function sameInvigilatorList(left: Array<string | null>, right: Array<string | null>): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  return left.every((value, index) => value === right[index]);
+}
+
+function matchesPersistedAssignment(payload: BulkAssignmentRequest, assignment: ApiAssignment): boolean {
+  const persistedInvigilators = [...assignment.invigilators]
+    .sort((left, right) => left.positionIndex - right.positionIndex)
+    .map((invigilator) => invigilator.invigilatorId);
+
+  return (
+    payload.examDate === assignment.examDate
+    && payload.roomId === assignment.roomId
+    && payload.slotId === assignment.timeSlotId
+    && (payload.subjectName ?? null) === (assignment.subjectName ?? null)
+    && (payload.subjectCode ?? null) === (assignment.subjectCode ?? null)
+    && (payload.chiefInvigilatorId ?? null) === (assignment.chiefInvigilatorId ?? null)
+    && payload.isLocked === assignment.locked
+    && sameInvigilatorList(payload.invigilatorIds, persistedInvigilators)
+  );
+}
+
+function entryMatchesPersisted(
+  persistedAssignments: ApiAssignment[],
+  target: { date: string; slotId: string },
+  entry?: ScheduleEntry,
+): boolean {
+  const slotAssignments = persistedAssignments.filter(
+    (assignment) => assignment.examDate === target.date && assignment.timeSlotId === target.slotId,
+  );
+
+  if (!entry) {
+    return slotAssignments.length === 0;
+  }
+
+  if (slotAssignments.length !== entry.assignments.length) {
+    return false;
+  }
+
+  const persistedByRoom = new Map(slotAssignments.map((assignment) => [assignment.roomId, assignment]));
+
+  return entry.assignments.every((assignment) => {
+    const persisted = persistedByRoom.get(assignment.roomId);
+    return persisted ? matchesPersistedAssignment(toBulkAssignmentRequest(target.date, assignment), persisted) : false;
+  });
+}
+
+function entryKey(date: string, slotId: string): string {
+  return `${date}::${slotId}`;
+}
+
 export function dayOfDate(date: string): Day {
   const d = new Date(date);
   const map: Day[] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri" as Day, "Sat" as Day];
@@ -39,15 +300,63 @@ export function dayOfDate(date: string): Day {
   return (DAYS.includes(day as Day) ? day : "Sun") as Day;
 }
 
-const cloneAssignment = (assignment: Assignment): Assignment => ({ ...assignment, invigilatorIds: [...assignment.invigilatorIds] });
-const cloneSchedule = (entries: ScheduleEntry[]): ScheduleEntry[] => entries.map((entry) => ({ ...entry, assignments: entry.assignments.map(cloneAssignment), lastGeneratedAssignments: entry.lastGeneratedAssignments?.map(cloneAssignment) }));
-
 export function UniGuardProvider({ children }: { children: ReactNode }) {
-  const [staff, setStaff] = useState<Staff[]>(() => seedStaff());
-  const [rooms, setRooms] = useState<Room[]>(() => seedRooms());
-  const [slots, setSlots] = useState<Slot[]>(SLOTS);
+  const queryClient = useQueryClient();
+  const peopleQuery = usePeopleQuery(PEOPLE_QUERY_PARAMS);
+  const roomsQuery = useRoomsQuery(ROOMS_QUERY_PARAMS);
+  const timeSlotsQuery = useTimeSlotsQuery(SLOT_QUERY_PARAMS);
+  const assignmentsQuery = useAssignmentsQuery(ASSIGNMENTS_QUERY_PARAMS);
+
+  const [staff, setStaff] = useState<Staff[]>([]);
+  const [rooms, setRooms] = useState<Room[]>([]);
+  const [slots, setSlots] = useState<Slot[]>([]);
   const [schedule, setSchedule] = useState<ScheduleEntry[]>([]);
   const [history, setHistory] = useState<ScheduleEntry[][]>([]);
+  const [dirtyEntryKeys, setDirtyEntryKeys] = useState<string[]>([]);
+  const [isPersisting, setIsPersisting] = useState(false);
+  const persistedAssignmentsRef = useRef<ApiAssignment[]>([]);
+  const scheduleInitializedRef = useRef(false);
+
+  const isLoading = Boolean(
+    (peopleQuery.isLoading && !peopleQuery.data)
+    || (roomsQuery.isLoading && !roomsQuery.data)
+    || (timeSlotsQuery.isLoading && !timeSlotsQuery.data)
+    || (assignmentsQuery.isLoading && !assignmentsQuery.data),
+  );
+  const error = peopleQuery.error ?? roomsQuery.error ?? timeSlotsQuery.error ?? assignmentsQuery.error;
+
+  useEffect(() => {
+    if (!assignmentsQuery.data) {
+      return;
+    }
+
+    persistedAssignmentsRef.current = assignmentsQuery.data.items;
+  }, [assignmentsQuery.data]);
+
+  useEffect(() => {
+    if (!peopleQuery.data || !roomsQuery.data || !timeSlotsQuery.data) {
+      return;
+    }
+
+    const nextRooms = roomsQuery.data.items.map(toRoom);
+    const nextStaff = peopleQuery.data.items.map(toStaff);
+    const nextSlots = timeSlotsQuery.data.items.map(toSlot);
+
+    setRooms(nextRooms);
+    setStaff(nextStaff);
+    setSlots(nextSlots);
+  }, [peopleQuery.data, roomsQuery.data, timeSlotsQuery.data]);
+
+  useEffect(() => {
+    if (!assignmentsQuery.data || rooms.length === 0 || scheduleInitializedRef.current) {
+      return;
+    }
+
+    setSchedule(toScheduleEntries(assignmentsQuery.data.items, rooms));
+    setHistory([]);
+    setDirtyEntryKeys([]);
+    scheduleInitializedRef.current = true;
+  }, [assignmentsQuery.data, rooms]);
 
   const getEntry = useCallback((date: string, slotId: string) => schedule.find((e) => e.date === date && e.slotId === slotId), [schedule]);
 
@@ -68,20 +377,140 @@ export function UniGuardProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const applySchedule = useCallback((updater: (prev: ScheduleEntry[]) => ScheduleEntry[]) => {
+  const syncDirtyEntry = useCallback((target: { date: string; slotId: string }, entry?: ScheduleEntry) => {
+    const key = entryKey(target.date, target.slotId);
+    const dirty = !entryMatchesPersisted(persistedAssignmentsRef.current, target, entry);
+
+    setDirtyEntryKeys((previous) => {
+      const hasKey = previous.includes(key);
+      if (dirty && !hasKey) {
+        return [...previous, key];
+      }
+      if (!dirty && hasKey) {
+        return previous.filter((value) => value !== key);
+      }
+      return previous;
+    });
+  }, []);
+
+  const isEntryDirty: Ctx["isEntryDirty"] = useCallback(
+    (date, slotId) => dirtyEntryKeys.includes(entryKey(date, slotId)),
+    [dirtyEntryKeys],
+  );
+
+  const saveEntry: Ctx["saveEntry"] = useCallback(async (date, slotId) => {
+    const currentEntry = getEntry(date, slotId);
+    if (!currentEntry) {
+      return false;
+    }
+
+    try {
+      setIsPersisting(true);
+
+      const savedAssignments = unwrapServiceResponse(
+        await assignmentsService.saveAssignmentsBulk(
+          currentEntry.assignments.map((assignment) => toBulkAssignmentRequest(date, assignment)),
+        ),
+      );
+
+      persistedAssignmentsRef.current = [
+        ...persistedAssignmentsRef.current.filter(
+          (assignment) => !(assignment.examDate === date && assignment.timeSlotId === slotId),
+        ),
+        ...savedAssignments,
+      ];
+
+      const nextRooms = rooms;
+      const synchronizedEntry = toScheduleEntries(savedAssignments, nextRooms).find(
+        (entry) => entry.date === date && entry.slotId === slotId,
+      );
+
+      setSchedule((previous) => previous.flatMap((entry) => {
+        if (entry.date !== date || entry.slotId !== slotId) {
+          return [entry];
+        }
+
+        if (!synchronizedEntry) {
+          return [];
+        }
+
+        return [{
+          ...synchronizedEntry,
+          lastGeneratedAssignments: entry.lastGeneratedAssignments?.map(cloneAssignment)
+            ?? synchronizedEntry.lastGeneratedAssignments?.map(cloneAssignment),
+        }];
+      }));
+
+      syncDirtyEntry({ date, slotId }, synchronizedEntry
+        ? {
+            ...synchronizedEntry,
+            lastGeneratedAssignments: currentEntry.lastGeneratedAssignments?.map(cloneAssignment)
+              ?? synchronizedEntry.lastGeneratedAssignments?.map(cloneAssignment),
+          }
+        : undefined);
+
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.assignments.all }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.people.all }),
+      ]);
+
+      return true;
+    } catch (errorValue) {
+      toast.error("Could not save schedule changes.", {
+        description: getErrorMessage(errorValue),
+      });
+      return false;
+    } finally {
+      setIsPersisting(false);
+    }
+  }, [getEntry, queryClient, rooms, syncDirtyEntry]);
+
+  const persistSlotPatch = useCallback(async (slotId: string, patch: Partial<Omit<Slot, "id">>) => {
+    const currentSlot = slots.find((slot) => slot.id === slotId);
+    if (!currentSlot) {
+      return;
+    }
+
+    try {
+      setIsPersisting(true);
+
+      await unwrapServiceResponse(await timeSlotsService.updateTimeSlot(slotId, {
+        label: currentSlot.label,
+        startTime: normalizeTimeValue((patch.startTime ?? currentSlot.startTime) as string),
+        endTime: normalizeTimeValue((patch.endTime ?? currentSlot.endTime) as string),
+        sortOrder: currentSlot.sortOrder,
+      }));
+
+      await queryClient.invalidateQueries({ queryKey: queryKeys.timeSlots.all });
+    } catch (errorValue) {
+      toast.error("Could not update the time slot.", {
+        description: getErrorMessage(errorValue),
+      });
+    } finally {
+      setIsPersisting(false);
+    }
+  }, [queryClient, slots]);
+
+  const applySchedule = useCallback((
+    updater: (prev: ScheduleEntry[]) => ScheduleEntry[],
+    persistTarget?: { date: string; slotId: string },
+  ) => {
+    let nextEntry: ScheduleEntry | undefined;
+
     setSchedule((prev) => {
       pushHistory(prev);
       const next = updater(prev);
+      if (persistTarget) {
+        nextEntry = next.find((entry) => entry.date === persistTarget.date && entry.slotId === persistTarget.slotId);
+      }
       recomputeStaffCounts(next);
       return next;
     });
-  }, [pushHistory, recomputeStaffCounts]);
 
-  const withSharedFlags = useCallback((assignments: Assignment[]) => {
-    const counts = new Map<string, number>();
-    assignments.forEach((a) => a.chiefInvigilatorId && counts.set(a.chiefInvigilatorId, (counts.get(a.chiefInvigilatorId) ?? 0) + 1));
-    return assignments.map((a) => ({ ...a, sharedChief: !!(a.chiefInvigilatorId && (counts.get(a.chiefInvigilatorId) ?? 0) >= 2) }));
-  }, []);
+    if (persistTarget) {
+      syncDirtyEntry({ date: persistTarget.date, slotId: persistTarget.slotId }, nextEntry);
+    }
+  }, [pushHistory, recomputeStaffCounts, syncDirtyEntry]);
 
   const generate: Ctx["generate"] = ({ date, slotId, roomIds, partial }) => {
     const day = dayOfDate(date);
@@ -92,12 +521,12 @@ export function UniGuardProvider({ children }: { children: ReactNode }) {
       const filtered = prev.filter((e) => !(e.date === date && e.slotId === slotId));
       const generated = assignments.map(cloneAssignment);
       return [...filtered, { date, slotId, day, assignments, lastGeneratedAssignments: generated }];
-    });
+    }, { date, slotId });
     return { conflicts };
   };
 
   const toggleLock: Ctx["toggleLock"] = (date, slotId, roomId) => {
-    applySchedule((prev) => prev.map((e) => e.date === date && e.slotId === slotId ? { ...e, assignments: e.assignments.map((a) => a.roomId === roomId ? { ...a, locked: !a.locked } : a) } : e));
+    applySchedule((prev) => prev.map((e) => e.date === date && e.slotId === slotId ? { ...e, assignments: e.assignments.map((a) => a.roomId === roomId ? { ...a, locked: !a.locked } : a) } : e), { date, slotId });
   };
 
   const manualAssign: Ctx["manualAssign"] = (date, slotId, roomId, kind, index, staffId) => {
@@ -113,20 +542,20 @@ export function UniGuardProvider({ children }: { children: ReactNode }) {
     const validation = validateSlotAssignments({ assignments: candidateAssignments, rooms, staff, day: entry.day });
     const blockingIssue = validation.issues.find((issue) => staffId && issue.staffId === staffId && issue.type !== "capacity");
     if (blockingIssue) return { ok: false, message: blockingIssue.message };
-    applySchedule((prev) => prev.map((e) => e.date === date && e.slotId === slotId ? { ...e, assignments: withSharedFlags(candidateAssignments) } : e));
+    applySchedule((prev) => prev.map((e) => e.date === date && e.slotId === slotId ? { ...e, assignments: withSharedFlags(candidateAssignments) } : e), { date, slotId });
     return { ok: true };
   };
 
   const addInvigilatorSlot: Ctx["addInvigilatorSlot"] = (date, slotId, roomId) => {
-    applySchedule((prev) => prev.map((e) => e.date === date && e.slotId === slotId ? { ...e, assignments: e.assignments.map((a) => a.roomId === roomId ? { ...a, invigilatorIds: [...a.invigilatorIds, null] } : a) } : e));
+    applySchedule((prev) => prev.map((e) => e.date === date && e.slotId === slotId ? { ...e, assignments: e.assignments.map((a) => a.roomId === roomId ? { ...a, invigilatorIds: [...a.invigilatorIds, null] } : a) } : e), { date, slotId });
   };
 
   const removeInvigilatorSlot: Ctx["removeInvigilatorSlot"] = (date, slotId, roomId, index) => {
-    applySchedule((prev) => prev.map((e) => e.date === date && e.slotId === slotId ? { ...e, assignments: e.assignments.map((a) => a.roomId === roomId ? { ...a, invigilatorIds: a.invigilatorIds.filter((_, i) => i !== index) } : a) } : e));
+    applySchedule((prev) => prev.map((e) => e.date === date && e.slotId === slotId ? { ...e, assignments: e.assignments.map((a) => a.roomId === roomId ? { ...a, invigilatorIds: a.invigilatorIds.filter((_, i) => i !== index) } : a) } : e), { date, slotId });
   };
 
   const updateAssignmentSubject: Ctx["updateAssignmentSubject"] = (date, slotId, roomId, patch) => {
-    applySchedule((prev) => prev.map((e) => e.date === date && e.slotId === slotId ? { ...e, assignments: e.assignments.map((a) => a.roomId === roomId ? { ...a, ...patch } : a) } : e));
+    applySchedule((prev) => prev.map((e) => e.date === date && e.slotId === slotId ? { ...e, assignments: e.assignments.map((a) => a.roomId === roomId ? { ...a, ...patch } : a) } : e), { date, slotId });
   };
 
   const addRoomToSlot: Ctx["addRoomToSlot"] = (date, slotId, roomId) => {
@@ -139,7 +568,7 @@ export function UniGuardProvider({ children }: { children: ReactNode }) {
       if (!existing) return [...prev, { date, slotId, day, assignments: [newAssignment] }];
       if (existing.assignments.some((a) => a.roomId === roomId)) return prev;
       return prev.map((e) => e === existing ? { ...e, assignments: [...e.assignments, newAssignment] } : e);
-    });
+    }, { date, slotId });
   };
 
   const swapInvigilators: Ctx["swapInvigilators"] = (date, slotId, fromRoomId, fromIdx, toRoomId, toIdx) => {
@@ -153,26 +582,40 @@ export function UniGuardProvider({ children }: { children: ReactNode }) {
       from.invigilatorIds[fromIdx] = to.invigilatorIds[toIdx];
       to.invigilatorIds[toIdx] = tmp;
       return { ...e, assignments };
-    }));
+    }), { date, slotId });
   };
 
   const undoLastChange = () => {
     const last = history[history.length - 1];
     if (!last) return false;
+    const changedKeys = new Set([
+      ...schedule.map((entry) => entryKey(entry.date, entry.slotId)),
+      ...last.map((entry) => entryKey(entry.date, entry.slotId)),
+    ]);
     setHistory((prev) => prev.slice(0, -1));
     setSchedule(cloneSchedule(last));
     recomputeStaffCounts(last);
+
+    changedKeys.forEach((key) => {
+      const [date, slotId] = key.split("::");
+      const entry = last.find((item) => item.date === date && item.slotId === slotId);
+      syncDirtyEntry({ date, slotId }, entry);
+    });
+
     return true;
   };
 
   const resetSlotToGenerated: Ctx["resetSlotToGenerated"] = (date, slotId) => {
     const entry = getEntry(date, slotId);
     if (!entry?.lastGeneratedAssignments) return false;
-    applySchedule((prev) => prev.map((e) => e.date === date && e.slotId === slotId ? { ...e, assignments: entry.lastGeneratedAssignments!.map(cloneAssignment) } : e));
+    applySchedule((prev) => prev.map((e) => e.date === date && e.slotId === slotId ? { ...e, assignments: entry.lastGeneratedAssignments!.map(cloneAssignment) } : e), { date, slotId });
     return true;
   };
 
-  const updateSlot: Ctx["updateSlot"] = (slotId, patch) => setSlots((prev) => prev.map((slot) => slot.id === slotId ? { ...slot, ...patch } : slot));
+  const updateSlot: Ctx["updateSlot"] = (slotId, patch) => {
+    setSlots((prev) => prev.map((slot) => slot.id === slotId ? { ...slot, ...patch } : slot));
+    void persistSlotPatch(slotId, patch);
+  };
   const validateEntry: Ctx["validateEntry"] = (entry) => validateSlotAssignments({ assignments: entry.assignments, rooms, staff, day: entry.day });
   const validateOne: Ctx["validateOne"] = (entry, assignment) => validateAssignment(assignment, entry.assignments, rooms, staff, entry.day);
   const setStaffWorkingDays: Ctx["setStaffWorkingDays"] = (id, days) => setStaff((prev) => prev.map((s) => s.id === id ? { ...s, workingDays: days } : s));
@@ -182,9 +625,38 @@ export function UniGuardProvider({ children }: { children: ReactNode }) {
   const removeRoom: Ctx["removeRoom"] = (id) => setRooms((prev) => prev.filter((r) => r.id !== id));
 
   const value = useMemo<Ctx>(() => ({
-    staff, rooms, slots, schedule, setStaffWorkingDays, addStaff, removeStaff, addRoom, removeRoom, updateSlot, generate, toggleLock, manualAssign,
-    addInvigilatorSlot, removeInvigilatorSlot, updateAssignmentSubject, addRoomToSlot, swapInvigilators, undoLastChange, resetSlotToGenerated, getEntry, validateEntry, validateOne,
-  }), [staff, rooms, slots, schedule, getEntry]);
+    staff, rooms, slots, schedule, isLoading, isPersisting, error, isEntryDirty, setStaffWorkingDays, addStaff, removeStaff, addRoom, removeRoom, updateSlot, generate, toggleLock, manualAssign,
+    addInvigilatorSlot, removeInvigilatorSlot, updateAssignmentSubject, addRoomToSlot, swapInvigilators, saveEntry, undoLastChange, resetSlotToGenerated, getEntry, validateEntry, validateOne,
+  }), [
+    addInvigilatorSlot,
+    addRoom,
+    addRoomToSlot,
+    addStaff,
+    error,
+    generate,
+    getEntry,
+    isLoading,
+    isEntryDirty,
+    isPersisting,
+    manualAssign,
+    removeInvigilatorSlot,
+    removeRoom,
+    removeStaff,
+    resetSlotToGenerated,
+    rooms,
+    saveEntry,
+    schedule,
+    setStaffWorkingDays,
+    slots,
+    staff,
+    swapInvigilators,
+    toggleLock,
+    undoLastChange,
+    updateAssignmentSubject,
+    updateSlot,
+    validateEntry,
+    validateOne,
+  ]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

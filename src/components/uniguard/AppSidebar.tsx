@@ -1,4 +1,4 @@
-import { LayoutDashboard, CalendarRange, Users, DoorOpen, ShieldCheck, ListOrdered, Settings } from "lucide-react";
+import { CalendarRange, Clock3, DoorOpen, LayoutDashboard, ListOrdered, Settings, ShieldCheck, Sparkles, Users } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import {
   Sidebar, SidebarContent, SidebarGroup, SidebarGroupContent, SidebarGroupLabel,
@@ -8,11 +8,13 @@ import { cn } from "@/lib/utils";
 import { useBranding } from "@/lib/branding/BrandingProvider";
 
 const items = [
-  { title: "Dashboard", url: "/", icon: LayoutDashboard },
-  { title: "Scheduler", url: "/scheduler", icon: CalendarRange },
-  { title: "Timeline", url: "/timeline", icon: ListOrdered },
+  { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
+  { title: "Scheduler", url: "/scheduler", icon: Sparkles },
+  { title: "Timeline", url: "/timeline", icon: CalendarRange },
   { title: "People", url: "/people", icon: Users },
   { title: "Rooms", url: "/rooms", icon: DoorOpen },
+  { title: "Time Slots", url: "/time-slots", icon: Clock3 },
+  { title: "Assignments", url: "/assignments", icon: ListOrdered },
   { title: "Settings", url: "/settings", icon: Settings },
 ];
 
