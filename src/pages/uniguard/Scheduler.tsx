@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AppLayout } from "@/components/uniguard/AppLayout";
-import { useUniGuard, dayOfDate } from "@/lib/uniguard/store";
+import { useUniGuard } from "@/lib/uniguard/store";
+import { dayOfDate } from "@/lib/uniguard/types";
 import { EmptyState, ErrorState, LoadingState } from "@/components/app/PageState";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
@@ -25,6 +26,7 @@ export default function Scheduler() {
   const [slotId, setSlotId] = useState("");
   const [selectedRooms, setSelectedRooms] = useState<string[]>([]);
   const [exportOpen, setExportOpen] = useState(false);
+  const saveInFlightRef = useRef(false);
 
   useEffect(() => {
     if (slots.length === 0) {
@@ -48,6 +50,50 @@ export default function Scheduler() {
       return rooms.slice(0, 5).map((room) => room.id);
     });
   }, [rooms]);
+
+  const dateStr = format(date, "yyyy-MM-dd");
+  const activeSlotId = slots.find((candidate) => candidate.id === slotId)?.id ?? slots[0]?.id ?? "";
+  const entry = activeSlotId ? getEntry(dateStr, activeSlotId) : undefined;
+  const entryDirty = activeSlotId ? isEntryDirty(dateStr, activeSlotId) : false;
+  const canSaveEntry = Boolean(activeSlotId && entry && entryDirty && !isPersisting);
+
+  const handleSave = useCallback(async () => {
+    if (!activeSlotId || !entry || !entryDirty || isPersisting || saveInFlightRef.current) {
+      return false;
+    }
+
+    saveInFlightRef.current = true;
+
+    try {
+      const saved = await saveEntry(dateStr, activeSlotId);
+      if (saved) {
+        toast.success("Schedule saved.");
+      }
+
+      return saved;
+    } finally {
+      saveInFlightRef.current = false;
+    }
+  }, [activeSlotId, dateStr, entry, entryDirty, isPersisting, saveEntry]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key.toLowerCase() !== "s" || (!event.ctrlKey && !event.metaKey)) {
+        return;
+      }
+
+      event.preventDefault();
+
+      if (!canSaveEntry) {
+        return;
+      }
+
+      void handleSave();
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [canSaveEntry, handleSave]);
 
   if (isLoading) {
     return (
@@ -76,12 +122,8 @@ export default function Scheduler() {
     );
   }
 
-  const activeSlotId = slots.find((candidate) => candidate.id === slotId)?.id ?? slots[0].id;
   const slot = slots.find((s) => s.id === activeSlotId) ?? slots[0];
-  const dateStr = format(date, "yyyy-MM-dd");
   const day = dayOfDate(dateStr);
-  const entry = getEntry(dateStr, activeSlotId);
-  const entryDirty = isEntryDirty(dateStr, activeSlotId);
 
   const toggleRoom = (id: string) => setSelectedRooms((prev) => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
   const onAssign = (partial: boolean) => {
@@ -91,15 +133,8 @@ export default function Scheduler() {
     else toast.warning(`${conflicts.length} issues detected`, { description: "Review highlighted rows, then save when ready." });
   };
 
-  async function handleSave() {
-    const saved = await saveEntry(dateStr, activeSlotId);
-    if (saved) {
-      toast.success("Schedule saved.");
-    }
-  }
-
   return (
-    <AppLayout title="Flexible Exam Resource Planner" subtitle="Dynamic Chief Invigilator and Invigilator allocation with real-time constraint validation." actions={<div className="flex flex-wrap gap-2"><Button variant="outline" className="gap-2" onClick={() => setExportOpen(true)}><FileDown className="h-4 w-4" /> Export PDF</Button><Button className="gap-2" disabled={!entry || !entryDirty || isPersisting} onClick={() => void handleSave()}><Save className="h-4 w-4" />{isPersisting ? "Saving..." : entryDirty ? "Save" : "Saved"}</Button></div>}>
+    <AppLayout title="Flexible Exam Resource Planner" subtitle="Dynamic Chief Invigilator and Invigilator allocation with real-time constraint validation." actions={<div className="flex flex-wrap gap-2"><Button variant="outline" className="gap-2" onClick={() => setExportOpen(true)}><FileDown className="h-4 w-4" /> Export PDF</Button><Button className="gap-2" disabled={!canSaveEntry} onClick={() => void handleSave()}><Save className="h-4 w-4" />{isPersisting ? "Saving..." : entryDirty ? "Save" : "Saved"}</Button></div>}>
       <div className="space-y-6">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           <StepCard step={1} title="Date & time slot" done={!!date}>
@@ -114,7 +149,7 @@ export default function Scheduler() {
             <div className="text-xs text-muted-foreground mt-3">{selectedRooms.length} of {rooms.length} selected</div>
           </StepCard>
           <StepCard step={3} title="Auto-assign" done={!!entry}>
-            <div className="space-y-2"><Button onClick={() => onAssign(false)} className="w-full gap-2 shadow-elevated"><Sparkles className="h-4 w-4" /> Generate schedule</Button><Button onClick={() => onAssign(true)} variant="outline" className="w-full gap-2" disabled={!entry}><RotateCw className="h-4 w-4" /> Regenerate unlocked</Button><Button onClick={() => void handleSave()} variant="outline" className="w-full gap-2" disabled={!entry || !entryDirty || isPersisting}><Save className="h-4 w-4" />{isPersisting ? "Saving..." : entryDirty ? "Save current slot" : "All changes saved"}</Button><p className="text-[11px] text-muted-foreground leading-relaxed">Generate locally, adjust manually, then save the final slot snapshot in one request.</p></div>
+            <div className="space-y-2"><Button onClick={() => onAssign(false)} className="w-full gap-2 shadow-elevated"><Sparkles className="h-4 w-4" /> Generate schedule</Button><Button onClick={() => onAssign(true)} variant="outline" className="w-full gap-2" disabled={!entry}><RotateCw className="h-4 w-4" /> Regenerate unlocked</Button><Button onClick={() => void handleSave()} variant="outline" className="w-full gap-2" disabled={!canSaveEntry}><Save className="h-4 w-4" />{isPersisting ? "Saving..." : entryDirty ? "Save current slot" : "All changes saved"}</Button><p className="text-[11px] text-muted-foreground leading-relaxed">Generate locally, adjust manually, then save the final slot snapshot in one request. Press Ctrl+S or Cmd+S to save the current slot.</p></div>
           </StepCard>
         </div>
         <ScheduleGrid date={dateStr} slotId={activeSlotId} />

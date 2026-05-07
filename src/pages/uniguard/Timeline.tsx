@@ -20,22 +20,6 @@ export default function Timeline() {
   const [profileId, setProfileId] = useState<string | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
 
-  if (isLoading) {
-    return (
-      <AppLayout title="Master Timeline" subtitle="Every scheduled exam, grouped by day. Search by staff name or subject code.">
-        <LoadingState title="Loading timeline..." description="Fetching saved schedule data from the backend." />
-      </AppLayout>
-    );
-  }
-
-  if (error) {
-    return (
-      <AppLayout title="Master Timeline" subtitle="Every scheduled exam, grouped by day. Search by staff name or subject code.">
-        <ErrorState description={getErrorMessage(error)} />
-      </AppLayout>
-    );
-  }
-
   const staffMap = useMemo(() => new Map(staff.map((s) => [s.id, s])), [staff]);
   const roomMap = useMemo(() => new Map(rooms.map((r) => [r.id, r])), [rooms]);
   const slotMap = useMemo(() => new Map(slots.map((s) => [s.id, s])), [slots]);
@@ -63,6 +47,22 @@ export default function Timeline() {
     }
     return [...byDate.entries()].sort(([a], [b]) => a.localeCompare(b));
   }, [schedule, query, staffMap, roomMap, slotMap]);
+
+  if (isLoading) {
+    return (
+      <AppLayout title="Master Timeline" subtitle="Every scheduled exam, grouped by day. Search by staff name or subject code.">
+        <LoadingState title="Loading timeline..." description="Fetching saved schedule data from the backend." />
+      </AppLayout>
+    );
+  }
+
+  if (error) {
+    return (
+      <AppLayout title="Master Timeline" subtitle="Every scheduled exam, grouped by day. Search by staff name or subject code.">
+        <ErrorState description={getErrorMessage(error)} />
+      </AppLayout>
+    );
+  }
 
   return (
     <AppLayout title="Master Timeline" subtitle="Every scheduled exam, grouped by day. Search by staff name or subject code." actions={<Button className="gap-2 shadow-elevated" onClick={() => setExportOpen(true)}><FileDown className="h-4 w-4" /> Export PDF</Button>}>

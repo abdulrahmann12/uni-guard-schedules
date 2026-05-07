@@ -1,6 +1,8 @@
-import { useState } from "react";
 import { ShieldCheck } from "lucide-react";
+import { useState } from "react";
 
+import { ApiError } from "@/api";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -15,15 +17,29 @@ export default function Login() {
   const { isLoggingIn, login } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [loginError, setLoginError] = useState<string | null>(null);
+
+  const invalidCredentialsHint =
+    loginError === "Invalid email or password."
+      ? "Check that you are using the active admin password. If the bootstrap password was changed after the admin user was first created, restart the backend after resetting that user's password in the database."
+      : null;
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    setLoginError(null);
 
     try {
-      await login({ email, password });
+      await login({ email: email.trim(), password });
       toast.success("Signed in successfully.");
     } catch (error) {
-      toast.error(getErrorMessage(error));
+      const message = getErrorMessage(error);
+      setLoginError(message);
+
+      if (error instanceof ApiError) {
+        return;
+      }
+
+      toast.error(message);
     }
   }
 
@@ -53,6 +69,15 @@ export default function Login() {
             </CardHeader>
             <CardContent>
               <form className="space-y-5" onSubmit={handleSubmit}>
+                {loginError ? (
+                  <Alert variant="destructive">
+                    <AlertTitle>Sign-in failed</AlertTitle>
+                    <AlertDescription>
+                      <p>{loginError}</p>
+                      {invalidCredentialsHint ? <p className="mt-2">{invalidCredentialsHint}</p> : null}
+                    </AlertDescription>
+                  </Alert>
+                ) : null}
                 <div className="space-y-2">
                   <Label htmlFor="email">Email</Label>
                   <Input
@@ -61,7 +86,12 @@ export default function Login() {
                     autoComplete="email"
                     placeholder="admin@uniguard.local"
                     value={email}
-                    onChange={(event) => setEmail(event.target.value)}
+                    onChange={(event) => {
+                      setEmail(event.target.value);
+                      if (loginError) {
+                        setLoginError(null);
+                      }
+                    }}
                     required
                   />
                 </div>
@@ -73,7 +103,12 @@ export default function Login() {
                     autoComplete="current-password"
                     placeholder="Enter your password"
                     value={password}
-                    onChange={(event) => setPassword(event.target.value)}
+                    onChange={(event) => {
+                      setPassword(event.target.value);
+                      if (loginError) {
+                        setLoginError(null);
+                      }
+                    }}
                     required
                   />
                 </div>

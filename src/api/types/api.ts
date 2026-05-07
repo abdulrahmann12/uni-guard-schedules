@@ -4,6 +4,25 @@ export type ISOTime = string;
 export type ISOInstant = string;
 
 export type SortDirection = "ASC" | "DESC";
+export type RequestDeduplicationMode = "join" | "cancel-previous" | "none";
+export type RequestLockState = "idle" | "pending" | "cooldown";
+
+export interface RequestFingerprintInput {
+  method?: string;
+  url?: string;
+  baseURL?: string;
+  params?: unknown;
+  data?: unknown;
+  resourceId?: string | number | null;
+  key?: string;
+}
+
+export interface RequestDeduplicationOptions {
+  enabled?: boolean;
+  mode?: RequestDeduplicationMode;
+  cooldownMs?: number;
+  key?: string;
+}
 
 export interface ValidationError {
   field: string;

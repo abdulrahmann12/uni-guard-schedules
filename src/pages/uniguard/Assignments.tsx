@@ -1,22 +1,22 @@
+import { LoaderCircle, PencilLine, Plus, RefreshCcw, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { PencilLine, Plus, RefreshCcw, Trash2 } from "lucide-react";
 
 import type { Assignment, AssignmentRequest, Person, Room, TimeSlot } from "@/api";
 import { EmptyState, ErrorState, LoadingState } from "@/components/app/PageState";
-import { AppLayout } from "@/components/uniguard/AppLayout";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { AppLayout } from "@/components/uniguard/AppLayout";
 import {
-  useAssignmentsQuery,
-  useCreateAssignmentMutation,
-  useDeleteAssignmentMutation,
-  usePeopleQuery,
-  useRoomsQuery,
-  useTimeSlotsQuery,
-  useUpdateAssignmentMutation,
+    useAssignmentsQuery,
+    useCreateAssignmentMutation,
+    useDeleteAssignmentMutation,
+    usePeopleQuery,
+    useRoomsQuery,
+    useTimeSlotsQuery,
+    useUpdateAssignmentMutation,
 } from "@/hooks";
 import { getErrorMessage } from "@/utils/error";
 import { toast } from "sonner";
@@ -250,8 +250,19 @@ export default function AssignmentsPage() {
                       <Button size="sm" variant="outline" className="gap-2" onClick={() => { setEditingAssignment(assignment); setDialogOpen(true); }}>
                         <PencilLine className="h-4 w-4" /> Edit
                       </Button>
-                      <Button size="icon" variant="ghost" className="text-muted-foreground hover:text-destructive" onClick={() => void handleDelete(assignment.id)}>
-                        <Trash2 className="h-4 w-4" />
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        aria-busy={deleteMutation.getIsPending(assignment.id)}
+                        className="text-muted-foreground hover:text-destructive"
+                        disabled={deleteMutation.getIsLocked(assignment.id)}
+                        onClick={() => void handleDelete(assignment.id)}
+                      >
+                        {deleteMutation.getIsPending(assignment.id) ? (
+                          <LoaderCircle className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-4 w-4" />
+                        )}
                       </Button>
                     </div>
                   </td>

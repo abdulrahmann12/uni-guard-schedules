@@ -1,9 +1,5 @@
 import type { BulkDuplicateStrategy, BulkTemplateDownload, BulkUploadResult, ServiceResponse } from "../types";
-import { ApiError } from "../types";
-import { apiClient } from "../client";
-import { normalizeApiError } from "../utils/errorHandler";
 import { performRequest } from "../utils/request";
-import { createErrorResponse, createSuccessResponse } from "../utils/serviceResponse";
 
 const BULK_ENDPOINT = "/api/bulk";
 const XLSX_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
@@ -25,23 +21,21 @@ async function downloadTemplate(
   resource: "persons" | "rooms",
   fallbackFileName: string,
 ): Promise<ServiceResponse<BulkTemplateDownload>> {
-  try {
-    const response = await apiClient.get<Blob>(`${BULK_ENDPOINT}/${resource}/template`, {
+  return performRequest<Blob, BulkTemplateDownload>(
+    {
+      url: `${BULK_ENDPOINT}/${resource}/template`,
+      method: "GET",
       responseType: "blob",
       timeout: 60000,
       headers: {
         Accept: XLSX_CONTENT_TYPE,
       },
-    });
-
-    return createSuccessResponse({
-      blob: response.data,
+    },
+    (blob, response) => ({
+      blob,
       fileName: extractFileName(response.headers["content-disposition"], fallbackFileName),
-    });
-  } catch (error) {
-    const apiError = error instanceof ApiError ? error : normalizeApiError(error);
-    return createErrorResponse(apiError);
-  }
+    }),
+  );
 }
 
 async function uploadFile(

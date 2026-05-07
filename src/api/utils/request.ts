@@ -1,8 +1,9 @@
 import type { AxiosRequestConfig, AxiosResponse } from "axios";
 
 import { apiClient } from "../client";
-import { ApiError, type ServiceResponse } from "../types";
+import { ApiError, type RequestDeduplicationOptions, type ServiceResponse } from "../types";
 import { normalizeApiError } from "./errorHandler";
+import { executeWithRequestDeduplication, resolveRequestDeduplicationOptions } from "./requestDeduplication";
 import { createErrorResponse, createSuccessResponse } from "./serviceResponse";
 
 type ResponseTransformer<TResponse, TResult> = (
@@ -10,12 +11,25 @@ type ResponseTransformer<TResponse, TResult> = (
   response: AxiosResponse<TResponse>,
 ) => TResult;
 
+export interface SafeRequestConfig extends AxiosRequestConfig {
+  dedupe?: RequestDeduplicationOptions;
+}
+
 export async function performRequest<TResponse, TResult = TResponse>(
-  config: AxiosRequestConfig,
+  config: SafeRequestConfig,
   transform?: ResponseTransformer<TResponse, TResult>,
 ): Promise<ServiceResponse<TResult>> {
+  const { dedupe, ...axiosConfig } = config;
+
   try {
-    const response = await apiClient.request<TResponse>(config);
+    const response = await executeWithRequestDeduplication<AxiosResponse<TResponse>>({
+      config: axiosConfig,
+      dedupe: resolveRequestDeduplicationOptions(axiosConfig, dedupe),
+      execute: (signal) => apiClient.request<TResponse>({
+        ...axiosConfig,
+        signal,
+      }),
+    });
     const data = transform ? transform(response.data, response) : (response.data as TResult);
 
     return createSuccessResponse(data);

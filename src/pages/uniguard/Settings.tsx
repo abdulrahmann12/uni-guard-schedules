@@ -1,12 +1,12 @@
-import { useEffect, useState } from "react";
-import { Moon, Save, Sun } from "lucide-react";
+import { LoaderCircle, Moon, Save, Sun } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 
 import type { SettingsRequest, ThemeMode } from "@/api";
 import { ErrorState, LoadingState } from "@/components/app/PageState";
-import { AppLayout } from "@/components/uniguard/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { AppLayout } from "@/components/uniguard/AppLayout";
 import { useSettingsQuery, useUpdateSettingsMutation } from "@/hooks";
 import { getErrorMessage } from "@/utils/error";
 import { toast } from "sonner";
@@ -25,6 +25,19 @@ export default function Settings() {
   const settingsQuery = useSettingsQuery();
   const updateMutation = useUpdateSettingsMutation();
   const [formState, setFormState] = useState<SettingsRequest>(DEFAULT_SETTINGS_FORM);
+
+  const savePayload = useMemo<SettingsRequest>(
+    () => ({
+      systemName: formState.systemName.trim(),
+      appTagline: formState.appTagline?.trim() || undefined,
+      logoUrl: formState.logoUrl?.trim() || null,
+      theme: formState.theme,
+      universityName: formState.universityName.trim(),
+      department: formState.department?.trim() || null,
+      examPeriod: formState.examPeriod.trim(),
+    }),
+    [formState],
+  );
 
   useEffect(() => {
     if (!settingsQuery.data) {
@@ -58,17 +71,12 @@ export default function Settings() {
     );
   }
 
+  const saveState = updateMutation.getRequestState(savePayload);
+  const isSaveLocked = updateMutation.getIsLocked(savePayload);
+
   async function handleSave() {
     try {
-      await updateMutation.mutateAsync({
-        systemName: formState.systemName.trim(),
-        appTagline: formState.appTagline?.trim() || undefined,
-        logoUrl: formState.logoUrl?.trim() || null,
-        theme: formState.theme,
-        universityName: formState.universityName.trim(),
-        department: formState.department?.trim() || null,
-        examPeriod: formState.examPeriod.trim(),
-      });
+      await updateMutation.mutateAsync(savePayload);
       toast.success("Settings updated.");
     } catch (error) {
       toast.error(getErrorMessage(error));
@@ -138,8 +146,9 @@ export default function Settings() {
             <div className="mt-4 text-xs opacity-90">{formState.department || "Department"} · {formState.examPeriod || "Exam period"}</div>
           </div>
 
-          <Button className="gap-2" disabled={updateMutation.isPending || !formState.systemName.trim() || !formState.universityName.trim() || !formState.examPeriod.trim()} onClick={() => void handleSave()}>
-            <Save className="h-4 w-4" /> {updateMutation.isPending ? "Saving..." : "Save settings"}
+          <Button className="gap-2" disabled={isSaveLocked || !formState.systemName.trim() || !formState.universityName.trim() || !formState.examPeriod.trim()} onClick={() => void handleSave()}>
+            {saveState === "pending" ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+            {saveState === "pending" ? "Saving..." : saveState === "cooldown" ? "Saved" : "Save settings"}
           </Button>
         </section>
       </div>

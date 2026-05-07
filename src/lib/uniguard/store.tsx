@@ -1,41 +1,47 @@
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
 import type {
   Assignment as ApiAssignment,
-  BulkAssignmentRequest,
-  Person,
   Room as ApiRoom,
   TimeSlot as ApiTimeSlot,
+  AssignmentsQuery,
+  BulkAssignmentRequest,
+  NormalizedPaginatedResponse,
+  PeopleQuery,
+  Person,
+  RoomsQuery,
+  TimeSlotsQuery,
 } from "@/api";
-import { useAssignmentsQuery, usePeopleQuery, useRoomsQuery, useTimeSlotsQuery } from "@/hooks";
 import { queryKeys } from "@/hooks/queryKeys";
-import { assignmentsService, timeSlotsService } from "@/services";
+import { assignmentsService, peopleService, roomsService, timeSlotsService } from "@/services";
 import { getErrorMessage } from "@/utils/error";
 import { unwrapServiceResponse } from "@/utils/serviceResponse";
 
-import { Assignment, Day, DAYS, Room, ScheduleEntry, Slot, Staff, minInvigilatorsForCapacity } from "./types";
-import { generateSchedule } from "./engine";
 import { validateAssignment, validateSlotAssignments } from "./constraintEngine";
+import { generateSchedule } from "./engine";
+import { Assignment, Day, dayOfDate, minInvigilatorsForCapacity, Room, ScheduleEntry, Slot, Staff } from "./types";
+
+const MAX_BACKEND_PAGE_SIZE = 100;
 
 const PEOPLE_QUERY_PARAMS = {
   page: 0,
-  size: 1000,
+  size: MAX_BACKEND_PAGE_SIZE,
   sortBy: "name",
   direction: "ASC",
 } as const;
 
 const ROOMS_QUERY_PARAMS = {
   page: 0,
-  size: 1000,
+  size: MAX_BACKEND_PAGE_SIZE,
   sortBy: "name",
   direction: "ASC",
 } as const;
 
 const SLOT_QUERY_PARAMS = {
   page: 0,
-  size: 100,
+  size: MAX_BACKEND_PAGE_SIZE,
   sortBy: "sortOrder",
   direction: "ASC",
   activeOnly: true,
@@ -43,10 +49,83 @@ const SLOT_QUERY_PARAMS = {
 
 const ASSIGNMENTS_QUERY_PARAMS = {
   page: 0,
-  size: 1000,
+  size: MAX_BACKEND_PAGE_SIZE,
   sortBy: "examDate",
   direction: "ASC",
 } as const;
+
+type PaginatedQueryParams = {
+  page?: number;
+  size?: number;
+};
+
+function clampPageSize(size?: number): number {
+  if (typeof size !== "number" || !Number.isFinite(size)) {
+    return MAX_BACKEND_PAGE_SIZE;
+  }
+
+  return Math.min(Math.max(Math.trunc(size), 1), MAX_BACKEND_PAGE_SIZE);
+}
+
+async function fetchAllPaginatedItems<TItem, TParams extends PaginatedQueryParams>(
+  params: TParams,
+  fetchPage: (params: TParams) => Promise<NormalizedPaginatedResponse<TItem>>,
+): Promise<NormalizedPaginatedResponse<TItem>> {
+  const baseParams = {
+    ...params,
+    page: 0,
+    size: clampPageSize(params.size),
+  } as TParams;
+
+  const firstPage = await fetchPage(baseParams);
+  const totalPages = Math.max(
+    firstPage.totalPages,
+    firstPage.totalItems > 0 ? Math.ceil(firstPage.totalItems / baseParams.size) : 0,
+  );
+
+  if (totalPages <= 1) {
+    return {
+      ...firstPage,
+      page: 0,
+      size: baseParams.size,
+    };
+  }
+
+  const remainingPages = await Promise.all(
+    Array.from({ length: totalPages - 1 }, (_, index) =>
+      fetchPage({
+        ...baseParams,
+        page: index + 1,
+      } as TParams)),
+  );
+
+  const items = [
+    ...firstPage.items,
+    ...remainingPages.flatMap((page) => page.items),
+  ];
+
+  return {
+    ...firstPage,
+    items,
+    page: 0,
+    size: baseParams.size,
+    totalItems: Math.max(firstPage.totalItems, items.length),
+    totalPages,
+  };
+}
+
+function useAllPagesQuery<TItem, TParams extends PaginatedQueryParams>(
+  queryKey: readonly unknown[],
+  params: TParams,
+  fetchPage: (params: TParams) => Promise<NormalizedPaginatedResponse<TItem>>,
+) {
+  return useQuery({
+    queryKey: [...queryKey, "all-pages", params],
+    queryFn: async () => fetchAllPaginatedItems(params, fetchPage),
+    placeholderData: (previousData) => previousData,
+    refetchOnWindowFocus: true,
+  });
+}
 
 interface Ctx {
   staff: Staff[];
@@ -293,19 +372,28 @@ function entryKey(date: string, slotId: string): string {
   return `${date}::${slotId}`;
 }
 
-export function dayOfDate(date: string): Day {
-  const d = new Date(date);
-  const map: Day[] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri" as Day, "Sat" as Day];
-  const day = map[d.getDay()];
-  return (DAYS.includes(day as Day) ? day : "Sun") as Day;
-}
-
 export function UniGuardProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
-  const peopleQuery = usePeopleQuery(PEOPLE_QUERY_PARAMS);
-  const roomsQuery = useRoomsQuery(ROOMS_QUERY_PARAMS);
-  const timeSlotsQuery = useTimeSlotsQuery(SLOT_QUERY_PARAMS);
-  const assignmentsQuery = useAssignmentsQuery(ASSIGNMENTS_QUERY_PARAMS);
+  const peopleQuery = useAllPagesQuery(
+    queryKeys.people.all,
+    PEOPLE_QUERY_PARAMS satisfies PeopleQuery,
+    async (params) => unwrapServiceResponse(await peopleService.getPeople(params)),
+  );
+  const roomsQuery = useAllPagesQuery(
+    queryKeys.rooms.all,
+    ROOMS_QUERY_PARAMS satisfies RoomsQuery,
+    async (params) => unwrapServiceResponse(await roomsService.getRooms(params)),
+  );
+  const timeSlotsQuery = useAllPagesQuery(
+    queryKeys.timeSlots.all,
+    SLOT_QUERY_PARAMS satisfies TimeSlotsQuery,
+    async (params) => unwrapServiceResponse(await timeSlotsService.getTimeSlots(params)),
+  );
+  const assignmentsQuery = useAllPagesQuery(
+    queryKeys.assignments.all,
+    ASSIGNMENTS_QUERY_PARAMS satisfies AssignmentsQuery,
+    async (params) => unwrapServiceResponse(await assignmentsService.getAssignments(params)),
+  );
 
   const [staff, setStaff] = useState<Staff[]>([]);
   const [rooms, setRooms] = useState<Room[]>([]);

@@ -51,6 +51,14 @@ export interface ScheduleEntry {
   lastGeneratedAssignments?: Assignment[];
 }
 
+export function dayOfDate(date: string): Day {
+  const value = new Date(date);
+  const map: Day[] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const day = map[value.getDay()];
+
+  return (DAYS.includes(day as Day) ? day : "Sun") as Day;
+}
+
 export type AssignmentState = "VALID" | "INCOMPLETE" | "CONFLICT";
 
 export const minInvigilatorsForCapacity = (capacity: number) => (capacity >= 40 ? 2 : 1);

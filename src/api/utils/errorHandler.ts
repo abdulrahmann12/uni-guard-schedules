@@ -2,7 +2,32 @@ import axios from "axios";
 
 import { ApiError, type BackendErrorResponse } from "../types";
 
+function extractTextMessage(payload: string): string | undefined {
+  const trimmedPayload = payload.trim();
+
+  if (!trimmedPayload) {
+    return undefined;
+  }
+
+  const lowercasePayload = trimmedPayload.toLowerCase();
+
+  if (
+    lowercasePayload.startsWith("<!doctype")
+    || lowercasePayload.startsWith("<html")
+    || lowercasePayload.includes("<body")
+  ) {
+    return undefined;
+  }
+
+  return trimmedPayload;
+}
+
 function extractBackendError(payload: unknown): BackendErrorResponse | null {
+  if (typeof payload === "string") {
+    const message = extractTextMessage(payload);
+    return message ? { message } : null;
+  }
+
   if (!payload || typeof payload !== "object") {
     return null;
   }
@@ -27,10 +52,19 @@ function extractBackendError(payload: unknown): BackendErrorResponse | null {
     timestamp: typeof candidate.timestamp === "string" ? candidate.timestamp : undefined,
     status: typeof candidate.status === "number" ? candidate.status : undefined,
     error: typeof candidate.error === "string" ? candidate.error : undefined,
-    message: typeof candidate.message === "string" ? candidate.message : undefined,
+    message:
+      typeof candidate.message === "string"
+        ? candidate.message
+        : typeof candidate.error === "string"
+          ? candidate.error
+          : undefined,
     path: typeof candidate.path === "string" ? candidate.path : undefined,
     validationErrors,
   };
+}
+
+function isLoginRequest(requestPath?: string): boolean {
+  return Boolean(requestPath && requestPath.endsWith("/api/auth/login"));
 }
 
 function toUserFriendlyMessage(options: {
@@ -39,8 +73,9 @@ function toUserFriendlyMessage(options: {
   validationErrors?: Array<{ field: string; message: string }>;
   isNetworkError: boolean;
   isTimeoutError: boolean;
+  requestPath?: string;
 }): string {
-  const { status, backendMessage, validationErrors = [], isNetworkError, isTimeoutError } = options;
+  const { status, backendMessage, validationErrors = [], isNetworkError, isTimeoutError, requestPath } = options;
 
   if (isTimeoutError) {
     return "The scheduling service took too long to respond. Please try again.";
@@ -56,7 +91,13 @@ function toUserFriendlyMessage(options: {
         ? "Some submitted values are invalid. Review the form and try again."
         : backendMessage || "The request could not be processed. Review the submitted data and try again.";
     case 401:
-      return "Your session is no longer valid. Please sign in again.";
+      return isLoginRequest(requestPath)
+        ? "Invalid email or password."
+        : "Your session is no longer valid. Please sign in again.";
+    case 403:
+      return isLoginRequest(requestPath)
+        ? "Invalid email or password."
+        : backendMessage || "You do not have permission to perform this action.";
     case 404:
       return backendMessage || "The requested resource could not be found.";
     case 409:
@@ -77,6 +118,7 @@ export function normalizeApiError(error: unknown): ApiError {
 
   if (axios.isAxiosError(error)) {
     const backendError = extractBackendError(error.response?.data);
+    const requestPath = backendError?.path ?? error.config?.url;
     const isTimeoutError = error.code === "ECONNABORTED";
     const isNetworkError = !error.response;
 
@@ -87,10 +129,11 @@ export function normalizeApiError(error: unknown): ApiError {
         validationErrors: backendError?.validationErrors,
         isNetworkError,
         isTimeoutError,
+        requestPath,
       }),
       status: backendError?.status ?? error.response?.status,
       backendMessage: backendError?.message ?? error.message,
-      path: backendError?.path,
+      path: requestPath,
       timestamp: backendError?.timestamp,
       validationErrors: backendError?.validationErrors,
       code: error.code,
