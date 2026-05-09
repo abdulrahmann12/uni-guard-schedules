@@ -1,7 +1,7 @@
 import { ShieldCheck } from "lucide-react";
 import { useState } from "react";
 
-import { ApiError } from "@/api";
+import { API_BASE_URL, ApiError } from "@/api";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,10 +18,17 @@ export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loginError, setLoginError] = useState<string | null>(null);
+  const backendTarget = (() => {
+    try {
+      return new URL(API_BASE_URL).host;
+    } catch {
+      return API_BASE_URL;
+    }
+  })();
 
   const invalidCredentialsHint =
     loginError === "Invalid email or password."
-      ? "Check that you are using the active admin password. If the bootstrap password was changed after the admin user was first created, restart the backend after resetting that user's password in the database."
+      ? `This app is currently signing in against ${backendTarget}. If local login works but this one fails, verify the deployed admin email and password for that backend and restart the service after updating its bootstrap auth configuration.`
       : null;
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -66,6 +73,7 @@ export default function Login() {
             <CardHeader>
               <CardTitle>Sign in</CardTitle>
               <CardDescription>Authenticate with your administrator account.</CardDescription>
+              <p className="text-xs text-muted-foreground">Active backend: {backendTarget}</p>
             </CardHeader>
             <CardContent>
               <form className="space-y-5" onSubmit={handleSubmit}>
