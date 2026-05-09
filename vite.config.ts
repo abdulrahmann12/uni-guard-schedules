@@ -6,7 +6,9 @@ import { defineConfig, loadEnv } from "vite";
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
-  const apiProxyTarget = env.VITE_API_BASE_URL?.trim() || "http://localhost:8080";
+  const apiProxyTarget = env.VITE_DEV_API_PROXY_TARGET?.trim()
+    || env.VITE_API_BASE_URL?.trim()
+    || "http://localhost:8080";
 
   return {
     server: {
@@ -18,6 +20,11 @@ export default defineConfig(({ mode }) => {
         "/api": {
           target: apiProxyTarget,
           changeOrigin: true,
+          configure: (proxy) => {
+            proxy.on("proxyReq", (proxyReq) => {
+              proxyReq.removeHeader("origin");
+            });
+          },
         },
       },
     },

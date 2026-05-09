@@ -1,7 +1,7 @@
 import { ShieldCheck } from "lucide-react";
 import { useState } from "react";
 
-import { API_BASE_URL, ApiError } from "@/api";
+import { API_TARGET_URL, ApiError } from "@/api";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -20,15 +20,19 @@ export default function Login() {
   const [loginError, setLoginError] = useState<string | null>(null);
   const backendTarget = (() => {
     try {
-      return new URL(API_BASE_URL).host;
+      return new URL(API_TARGET_URL).host;
     } catch {
-      return API_BASE_URL;
+      return API_TARGET_URL;
     }
   })();
+  const normalizedBackendTarget = backendTarget.toLowerCase();
+  const isLocalBackend = normalizedBackendTarget.startsWith("localhost") || normalizedBackendTarget.startsWith("127.0.0.1");
 
   const invalidCredentialsHint =
     loginError === "Invalid email or password."
-      ? `This app is currently signing in against ${backendTarget}. If local login works but this one fails, verify the deployed admin email and password for that backend and restart the service after updating its bootstrap auth configuration.`
+      ? isLocalBackend
+        ? `This app is currently signing in against ${backendTarget}. Verify the local bootstrap admin email and password for that backend. If you deleted the admin user, restart the backend so it can recreate the bootstrap account before signing in again.`
+        : `This app is currently signing in against ${backendTarget}. If local login works but this one fails, verify the deployed admin email and password for that backend and restart the service after updating its bootstrap auth configuration.`
       : null;
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
