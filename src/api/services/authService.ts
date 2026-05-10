@@ -1,6 +1,5 @@
 import type { AuthResponse, CurrentSession, LoginRequest, ServiceResponse } from "../types";
 import { clearStoredAuthSession, setStoredAuthSession } from "../utils/authStorage";
-import { redirectToLogin } from "../utils/navigation";
 import { performRequest } from "../utils/request";
 import { createSuccessResponse } from "../utils/serviceResponse";
 
@@ -29,7 +28,6 @@ async function getCurrentSession(): Promise<ServiceResponse<CurrentSession>> {
 
 async function logout(): Promise<ServiceResponse<null>> {
   clearStoredAuthSession();
-  redirectToLogin();
   return createSuccessResponse<null>(null);
 }
 

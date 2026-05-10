@@ -13,6 +13,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import type { AuthSession, CurrentSession, LoginRequest } from "@/api";
 import { authService } from "@/services";
 import { getAuthSession } from "@/lib/auth-storage";
+import { LOGIN_ROUTE, registerNavigationHandler } from "@/api/utils/navigation";
 import { unwrapServiceResponse } from "@/utils/serviceResponse";
 
 interface AuthContextValue {
@@ -41,6 +42,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setSession(getAuthSession());
   }, [location.pathname]);
 
+  useEffect(() => registerNavigationHandler((path, options) => navigate(path, options)), [navigate]);
+
   const sessionQuery = useQuery({
     queryKey: ["auth", "session", session?.accessToken],
     queryFn: loadCurrentSession,
@@ -67,7 +70,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await authService.logout();
     setSession(null);
     queryClient.removeQueries({ queryKey: ["auth"] });
-  }, [queryClient]);
+    navigate(LOGIN_ROUTE, { replace: true });
+  }, [navigate, queryClient]);
 
   const value = useMemo<AuthContextValue>(
     () => ({

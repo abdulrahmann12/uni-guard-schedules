@@ -1,0 +1,40 @@
+{
+  "rewrites": [
+    {
+      "source": "/login",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/dashboard",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/people",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/rooms",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/scheduler",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/timeline",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/time-slots",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/assignments",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/settings",
+      "destination": "/index.html"
+    }
+  ]
+}
