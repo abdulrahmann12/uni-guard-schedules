@@ -1,5 +1,5 @@
-import { Assignment, Day, Room, Slot, Staff } from "./types";
 import { validateSlotAssignments } from "./constraintEngine";
+import { Assignment, Day, Room, Staff } from "./types";
 
 interface GenerateInput {
   roomIds: string[];
@@ -9,6 +9,7 @@ interface GenerateInput {
   slotId: string;
   existing?: Assignment[];
   defaultSubject?: { subjectName?: string; subjectCode?: string };
+  regenerateUnlocked?: boolean;
 }
 
 interface GenerateResult {
@@ -22,10 +23,12 @@ const cloneAssignment = (assignment: Assignment): Assignment => ({
   invigilatorIds: [...assignment.invigilatorIds],
 });
 
-export function generateSchedule({ roomIds, rooms, staff, day, slotId, existing = [], defaultSubject }: GenerateInput): GenerateResult {
+export function generateSchedule({ roomIds, rooms, staff, day, slotId, existing = [], defaultSubject, regenerateUnlocked = false }: GenerateInput): GenerateResult {
   const roomMap = new Map(rooms.map((room) => [room.id, room]));
+  const selectedRoomIds = new Set(roomIds);
   const existingByRoom = new Map(existing.map((assignment) => [assignment.roomId, assignment]));
-  const lockedByRoom = new Map(existing.filter((assignment) => assignment.locked).map((assignment) => [assignment.roomId, assignment]));
+  const preservedAssignments = existing.filter((assignment) => assignment.locked || (regenerateUnlocked && !selectedRoomIds.has(assignment.roomId)));
+  const preservedByRoom = new Map(preservedAssignments.map((assignment) => [assignment.roomId, assignment]));
   const chiefRoomCount = new Map<string, number>();
   const usedInvigilators = new Set<string>();
   const delta = new Map<string, number>();
@@ -35,7 +38,7 @@ export function generateSchedule({ roomIds, rooms, staff, day, slotId, existing 
     if (assignment.chiefInvigilatorId) chiefRoomCount.set(assignment.chiefInvigilatorId, (chiefRoomCount.get(assignment.chiefInvigilatorId) ?? 0) + 1);
     assignment.invigilatorIds.forEach((id) => id && usedInvigilators.add(id));
   };
-  lockedByRoom.forEach(seedUsage);
+  preservedAssignments.forEach(seedUsage);
 
   const byFairLoad = (a: Staff, b: Staff) => (a.totalAssignments + (delta.get(a.id) ?? 0)) - (b.totalAssignments + (delta.get(b.id) ?? 0)) || a.name.localeCompare(b.name);
   const availableChiefs = () => staff
@@ -51,18 +54,23 @@ export function generateSchedule({ roomIds, rooms, staff, day, slotId, existing 
   for (const roomId of roomIds) {
     const room = roomMap.get(roomId);
     if (!room) continue;
-    const locked = lockedByRoom.get(roomId);
-    if (locked) {
-      assignments.push(cloneAssignment(locked));
+    const preserved = preservedByRoom.get(roomId);
+    if (preserved?.locked) {
+      assignments.push(cloneAssignment(preserved));
       continue;
     }
 
     const previous = existingByRoom.get(roomId);
+    const invigilatorCount = Math.max(previous?.invigilatorIds.length ?? room.minInvigilators, room.minInvigilators);
     const next: Assignment = {
       roomId,
       slotId,
-      chiefInvigilatorId: previous?.chiefInvigilatorId ?? null,
-      invigilatorIds: previous ? [...previous.invigilatorIds] : Array.from({ length: room.minInvigilators }, () => null),
+      chiefInvigilatorId: regenerateUnlocked ? null : previous?.chiefInvigilatorId ?? null,
+      invigilatorIds: regenerateUnlocked
+        ? Array.from({ length: invigilatorCount }, () => null)
+        : previous
+          ? [...previous.invigilatorIds]
+          : Array.from({ length: room.minInvigilators }, () => null),
       locked: false,
       subjectName: previous?.subjectName ?? defaultSubject?.subjectName,
       subjectCode: previous?.subjectCode ?? defaultSubject?.subjectCode,

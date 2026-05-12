@@ -1,22 +1,22 @@
-import { useEffect, useState } from "react";
-import { AppLayout } from "@/components/uniguard/AppLayout";
-import { useUniGuard } from "@/lib/uniguard/store";
-import { dayOfDate } from "@/lib/uniguard/types";
 import { EmptyState, ErrorState, LoadingState } from "@/components/app/PageState";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { CalendarIcon, Sparkles, RotateCw, Check, FileDown, Save, Settings2 } from "lucide-react";
-import { format } from "date-fns";
-import { cn } from "@/lib/utils";
-import { Badge } from "@/components/ui/badge";
-import { ScheduleGrid } from "@/components/uniguard/ScheduleGrid";
-import { getErrorMessage } from "@/utils/error";
-import { toast } from "sonner";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { AppLayout } from "@/components/uniguard/AppLayout";
 import { ExportDialog } from "@/components/uniguard/ExportDialog";
+import { ScheduleGrid } from "@/components/uniguard/ScheduleGrid";
+import { useUniGuard } from "@/lib/uniguard/store";
+import { dayOfDate, type Slot } from "@/lib/uniguard/types";
+import { cn } from "@/lib/utils";
+import { getErrorMessage } from "@/utils/error";
+import { format } from "date-fns";
+import { CalendarIcon, Check, FileDown, RotateCw, Save, Settings2, Sparkles } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 
 const slotLabel = (s: { startTime: string; endTime: string }) => `${s.startTime} – ${s.endTime}`;
 
@@ -38,8 +38,62 @@ export default function Scheduler() {
     }
   }, [slotId, slots]);
 
+  const hasSchedulerPrerequisites = rooms.length > 0 && slots.length > 0;
+  const activeSlotId = slots.find((candidate) => candidate.id === slotId)?.id ?? slots[0]?.id ?? "";
+  const slot = slots.find((s) => s.id === activeSlotId) ?? slots[0];
+  const dateStr = format(date, "yyyy-MM-dd");
+  const day = dayOfDate(dateStr);
+  const entry = hasSchedulerPrerequisites && activeSlotId ? getEntry(dateStr, activeSlotId) : undefined;
+  const entryDirty = hasSchedulerPrerequisites && activeSlotId ? isEntryDirty(dateStr, activeSlotId) : false;
+  const entryRoomIds = entry?.assignments.map((assignment) => assignment.roomId).join("::") ?? "";
+  const entrySelection = useMemo(
+    () => (entryRoomIds
+      ? entryRoomIds.split("::").filter((roomId, index, roomIds) => roomIds.indexOf(roomId) === index && rooms.some((room) => room.id === roomId))
+      : []),
+    [entryRoomIds, rooms],
+  );
+
+  const handleSave = useCallback(async () => {
+    if (!activeSlotId) {
+      return;
+    }
+
+    const saved = await saveEntry(dateStr, activeSlotId);
+    if (saved) {
+      toast.success("Schedule saved.");
+    }
+  }, [activeSlotId, dateStr, saveEntry]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if ((!event.ctrlKey && !event.metaKey) || event.key.toLowerCase() !== "s") {
+        return;
+      }
+
+      event.preventDefault();
+
+      if (event.repeat || !entry || !entryDirty || isPersisting) {
+        return;
+      }
+
+      void handleSave();
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [entry, entryDirty, handleSave, isPersisting]);
+
   useEffect(() => {
     setSelectedRooms((previous) => {
+      if (entrySelection.length > 0) {
+        const unchanged = entrySelection.length === previous.length && entrySelection.every((roomId, index) => roomId === previous[index]);
+
+        return unchanged ? previous : entrySelection;
+      }
+
       const valid = previous.filter((roomId) => rooms.some((room) => room.id === roomId));
 
       if (valid.length > 0 || rooms.length === 0) {
@@ -48,7 +102,7 @@ export default function Scheduler() {
 
       return rooms.slice(0, 5).map((room) => room.id);
     });
-  }, [rooms]);
+  }, [activeSlotId, dateStr, entrySelection, rooms]);
 
   if (isLoading) {
     return (
@@ -77,13 +131,6 @@ export default function Scheduler() {
     );
   }
 
-  const activeSlotId = slots.find((candidate) => candidate.id === slotId)?.id ?? slots[0].id;
-  const slot = slots.find((s) => s.id === activeSlotId) ?? slots[0];
-  const dateStr = format(date, "yyyy-MM-dd");
-  const day = dayOfDate(dateStr);
-  const entry = getEntry(dateStr, activeSlotId);
-  const entryDirty = isEntryDirty(dateStr, activeSlotId);
-
   const toggleRoom = (id: string) => setSelectedRooms((prev) => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
   const onAssign = (partial: boolean) => {
     if (selectedRooms.length === 0) return toast.error("Select at least one room first");
@@ -91,13 +138,6 @@ export default function Scheduler() {
     if (conflicts.length === 0) toast.success(partial ? "Schedule regenerated locally" : "Schedule generated locally", { description: `${selectedRooms.length} rooms ready to review and save.` });
     else toast.warning(`${conflicts.length} issues detected`, { description: "Review highlighted rows, then save when ready." });
   };
-
-  async function handleSave() {
-    const saved = await saveEntry(dateStr, activeSlotId);
-    if (saved) {
-      toast.success("Schedule saved.");
-    }
-  }
 
   return (
     <AppLayout title="Flexible Exam Resource Planner" subtitle="Dynamic Chief Invigilator and Invigilator allocation with real-time constraint validation." actions={<div className="flex flex-wrap gap-2"><Button variant="outline" className="gap-2" onClick={() => setExportOpen(true)}><FileDown className="h-4 w-4" /> Export PDF</Button><Button className="gap-2" disabled={!entry || !entryDirty || isPersisting} onClick={() => void handleSave()}><Save className="h-4 w-4" />{isPersisting ? "Saving..." : entryDirty ? "Save" : "Saved"}</Button></div>}>
@@ -125,7 +165,7 @@ export default function Scheduler() {
   );
 }
 
-function EditSlotDialog({ slot, onSave }: { slot: any; onSave: (patch: any) => void }) {
+function EditSlotDialog({ slot, onSave }: { slot: Slot; onSave: (patch: Partial<Omit<Slot, "id">>) => void }) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(slot);
   return <Dialog open={open} onOpenChange={(o) => { setOpen(o); setDraft(slot); }}><DialogTrigger asChild><Button variant="outline" size="sm" className="w-full gap-2"><Settings2 className="h-3.5 w-3.5" /> Edit time window</Button></DialogTrigger><DialogContent><DialogHeader><DialogTitle>Edit time slot</DialogTitle></DialogHeader><p className="text-xs text-muted-foreground">Subjects are now set per room — multiple exams can run in the same time window.</p><div className="grid grid-cols-2 gap-3"><div><Label>Start time</Label><Input value={draft.startTime} onChange={(e) => setDraft({ ...draft, startTime: e.target.value })} /></div><div><Label>End time</Label><Input value={draft.endTime} onChange={(e) => setDraft({ ...draft, endTime: e.target.value })} /></div></div><DialogFooter><Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button><Button onClick={() => { onSave(draft); setOpen(false); }}>Save</Button></DialogFooter></DialogContent></Dialog>;

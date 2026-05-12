@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import type { AssignmentRequest, AssignmentsQuery, UUID } from "@/api";
 import { assignmentsService } from "@/services";
+import { getErrorMessage } from "@/utils/error";
 import { unwrapServiceResponse } from "@/utils/serviceResponse";
 
 import { queryKeys } from "./queryKeys";
@@ -14,7 +15,46 @@ const defaultAssignmentsParams: AssignmentsQuery = {
   direction: "ASC",
 };
 
+interface DeleteAllAssignmentsResult {
+  total: number;
+  deleted: number;
+  failed: number;
+  firstError?: string;
+}
+
 const ASSIGNMENTS_ENDPOINT = "/api/assignments";
+
+async function fetchAllAssignments(params: AssignmentsQuery = defaultAssignmentsParams) {
+  const pageSize = Math.max(1, Math.trunc(params.size ?? defaultAssignmentsParams.size ?? 100));
+  const baseParams = {
+    ...params,
+    page: 0,
+    size: pageSize,
+  } satisfies AssignmentsQuery;
+
+  const firstPage = unwrapServiceResponse(await assignmentsService.getAssignments(baseParams));
+  const totalPages = Math.max(
+    firstPage.totalPages,
+    firstPage.totalItems > 0 ? Math.ceil(firstPage.totalItems / pageSize) : 0,
+  );
+
+  if (totalPages <= 1) {
+    return firstPage.items;
+  }
+
+  const remainingPages = await Promise.all(
+    Array.from({ length: totalPages - 1 }, async (_, index) =>
+      unwrapServiceResponse(await assignmentsService.getAssignments({
+        ...baseParams,
+        page: index + 1,
+      }))),
+  );
+
+  return [
+    ...firstPage.items,
+    ...remainingPages.flatMap((page) => page.items),
+  ];
+}
 
 export function useAssignmentsQuery(params: AssignmentsQuery = defaultAssignmentsParams) {
   return useQuery({
@@ -72,6 +112,42 @@ export function useDeleteAssignmentMutation() {
       url: `${ASSIGNMENTS_ENDPOINT}/${id}`,
     }),
     mutationFn: async (id: UUID) => unwrapServiceResponse(await assignmentsService.deleteAssignment(id)),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.assignments.all });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.people.all });
+    },
+  });
+}
+
+export function useDeleteAllAssignmentsMutation() {
+  const queryClient = useQueryClient();
+
+  return useSafeMutation<DeleteAllAssignmentsResult, Error, void>({
+    getFingerprint: () => ({
+      method: "DELETE",
+      url: ASSIGNMENTS_ENDPOINT,
+    }),
+    mutationFn: async () => {
+      const assignments = await fetchAllAssignments(defaultAssignmentsParams);
+      let deleted = 0;
+      let firstError: string | undefined;
+
+      for (const assignment of assignments) {
+        try {
+          await unwrapServiceResponse(await assignmentsService.deleteAssignment(assignment.id));
+          deleted += 1;
+        } catch (errorValue) {
+          firstError ??= getErrorMessage(errorValue);
+        }
+      }
+
+      return {
+        total: assignments.length,
+        deleted,
+        failed: assignments.length - deleted,
+        firstError,
+      };
+    },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: queryKeys.assignments.all });
       await queryClient.invalidateQueries({ queryKey: queryKeys.people.all });

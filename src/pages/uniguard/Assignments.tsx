@@ -3,6 +3,16 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import type { Assignment, AssignmentRequest, Person, Room, TimeSlot } from "@/api";
 import { EmptyState, ErrorState, LoadingState } from "@/components/app/PageState";
+import {
+    AlertDialog,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+    AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -12,6 +22,7 @@ import { AppLayout } from "@/components/uniguard/AppLayout";
 import {
     useAssignmentsQuery,
     useCreateAssignmentMutation,
+    useDeleteAllAssignmentsMutation,
     useDeleteAssignmentMutation,
     usePeopleQuery,
     useRoomsQuery,
@@ -40,6 +51,7 @@ export default function AssignmentsPage() {
   const [toDate, setToDate] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingAssignment, setEditingAssignment] = useState<Assignment | null>(null);
+  const [deleteAllOpen, setDeleteAllOpen] = useState(false);
 
   const assignmentsQuery = useAssignmentsQuery({
     page: 0,
@@ -61,6 +73,7 @@ export default function AssignmentsPage() {
   });
   const createMutation = useCreateAssignmentMutation();
   const updateMutation = useUpdateAssignmentMutation();
+  const deleteAllMutation = useDeleteAllAssignmentsMutation();
   const deleteMutation = useDeleteAssignmentMutation();
 
   const anyLoading = assignmentsQuery.isLoading || peopleQuery.isLoading || roomsQuery.isLoading || timeSlotsQuery.isLoading;
@@ -138,40 +151,91 @@ export default function AssignmentsPage() {
     }
   }
 
+  async function handleDeleteAll() {
+    try {
+      const result = await deleteAllMutation.mutateAsync();
+      setDeleteAllOpen(false);
+
+      if (result.total === 0) {
+        toast.warning("No assignments to delete.");
+        return;
+      }
+
+      if (result.failed === 0) {
+        toast.success(`${result.deleted} assignments deleted.`);
+        return;
+      }
+
+      toast.warning(`Deleted ${result.deleted} assignments, ${result.failed} failed.`, {
+        description: result.firstError ?? "Some assignments could not be removed.",
+      });
+    } catch (errorValue) {
+      toast.error("Could not delete all assignments.", {
+        description: getErrorMessage(errorValue),
+      });
+    }
+  }
+
   return (
     <AppLayout
       title="Assignments"
       subtitle="Manage room assignments across dates, time slots, and invigilators."
       actions={
-        <AssignmentDialog
-          key={editingAssignment?.id ?? "new-assignment"}
-          open={dialogOpen}
-          title={editingAssignment ? "Edit assignment" : "Add assignment"}
-          initialValue={editingAssignment}
-          people={people}
-          rooms={rooms}
-          timeSlots={timeSlots}
-          trigger={
-            <Button
-              className="gap-2"
-              disabled={!canCreateAssignment}
-              onClick={() => {
-                setEditingAssignment(null);
-                setDialogOpen(true);
-              }}
-            >
-              <Plus className="h-4 w-4" /> Add assignment
-            </Button>
-          }
-          onOpenChange={(nextOpen) => {
-            setDialogOpen(nextOpen);
-            if (!nextOpen) {
-              setEditingAssignment(null);
+        <div className="flex flex-wrap gap-2">
+          <AlertDialog open={deleteAllOpen} onOpenChange={setDeleteAllOpen}>
+            <AlertDialogTrigger asChild>
+              <Button variant="destructive" className="gap-2" disabled={deleteAllMutation.isPending}>
+                {deleteAllMutation.isPending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                {deleteAllMutation.isPending ? "Deleting..." : "Delete All"}
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Delete all assignments?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This removes every saved assignment in the system in one pass. This action cannot be undone.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel disabled={deleteAllMutation.isPending}>Cancel</AlertDialogCancel>
+                <Button variant="destructive" disabled={deleteAllMutation.isPending} onClick={() => void handleDeleteAll()}>
+                  {deleteAllMutation.isPending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                  {deleteAllMutation.isPending ? "Deleting..." : "Delete all assignments"}
+                </Button>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+
+          <AssignmentDialog
+            key={editingAssignment?.id ?? "new-assignment"}
+            open={dialogOpen}
+            title={editingAssignment ? "Edit assignment" : "Add assignment"}
+            initialValue={editingAssignment}
+            people={people}
+            rooms={rooms}
+            timeSlots={timeSlots}
+            trigger={
+              <Button
+                className="gap-2"
+                disabled={!canCreateAssignment || deleteAllMutation.isPending}
+                onClick={() => {
+                  setEditingAssignment(null);
+                  setDialogOpen(true);
+                }}
+              >
+                <Plus className="h-4 w-4" /> Add assignment
+              </Button>
             }
-          }}
-          onSubmit={handleSubmit}
-          isSubmitting={createMutation.isPending || updateMutation.isPending}
-        />
+            onOpenChange={(nextOpen) => {
+              setDialogOpen(nextOpen);
+              if (!nextOpen) {
+                setEditingAssignment(null);
+              }
+            }}
+            onSubmit={handleSubmit}
+            isSubmitting={createMutation.isPending || updateMutation.isPending}
+          />
+        </div>
       }
     >
       <div className="mb-5 grid gap-3 lg:grid-cols-5">
@@ -255,7 +319,7 @@ export default function AssignmentsPage() {
                         variant="ghost"
                         aria-busy={deleteMutation.getIsPending(assignment.id)}
                         className="text-muted-foreground hover:text-destructive"
-                        disabled={deleteMutation.getIsLocked(assignment.id)}
+                        disabled={deleteAllMutation.isPending || deleteMutation.getIsLocked(assignment.id)}
                         onClick={() => void handleDelete(assignment.id)}
                       >
                         {deleteMutation.getIsPending(assignment.id) ? (

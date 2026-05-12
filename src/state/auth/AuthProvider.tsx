@@ -1,19 +1,19 @@
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-  type ReactNode,
-} from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+    createContext,
+    useCallback,
+    useContext,
+    useEffect,
+    useMemo,
+    useState,
+    type ReactNode,
+} from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 import type { AuthSession, CurrentSession, LoginRequest } from "@/api";
-import { authService } from "@/services";
-import { getAuthSession } from "@/lib/auth-storage";
 import { LOGIN_ROUTE, registerNavigationHandler } from "@/api/utils/navigation";
+import { getAuthSession } from "@/lib/auth-storage";
+import { authService } from "@/services";
 import { unwrapServiceResponse } from "@/utils/serviceResponse";
 
 interface AuthContextValue {

@@ -3,16 +3,16 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { toast } from "sonner";
 
 import type {
-  Assignment as ApiAssignment,
-  Room as ApiRoom,
-  TimeSlot as ApiTimeSlot,
-  AssignmentsQuery,
-  BulkAssignmentRequest,
-  NormalizedPaginatedResponse,
-  PeopleQuery,
-  Person,
-  RoomsQuery,
-  TimeSlotsQuery,
+    Assignment as ApiAssignment,
+    Room as ApiRoom,
+    TimeSlot as ApiTimeSlot,
+    AssignmentsQuery,
+    BulkAssignmentRequest,
+    NormalizedPaginatedResponse,
+    PeopleQuery,
+    Person,
+    RoomsQuery,
+    TimeSlotsQuery,
 } from "@/api";
 import { queryKeys } from "@/hooks/queryKeys";
 import { assignmentsService, peopleService, roomsService, timeSlotsService } from "@/services";
@@ -189,6 +189,25 @@ function cloneEntry(entry: ScheduleEntry): ScheduleEntry {
 
 function cloneSchedule(entries: ScheduleEntry[]): ScheduleEntry[] {
   return entries.map(cloneEntry);
+}
+
+function mergeAssignmentsForPartialRegeneration(existing: Assignment[], generated: Assignment[]): Assignment[] {
+  const generatedByRoom = new Map(generated.map((assignment) => [assignment.roomId, cloneAssignment(assignment)]));
+  const merged = existing.map((assignment) => generatedByRoom.get(assignment.roomId) ?? cloneAssignment(assignment));
+
+  generated.forEach((assignment) => {
+    if (!generatedByRoom.has(assignment.roomId)) {
+      return;
+    }
+
+    if (existing.some((currentAssignment) => currentAssignment.roomId === assignment.roomId)) {
+      return;
+    }
+
+    merged.push(cloneAssignment(assignment));
+  });
+
+  return merged;
 }
 
 function withSharedFlags(assignments: Assignment[]): Assignment[] {
@@ -602,13 +621,26 @@ export function UniGuardProvider({ children }: { children: ReactNode }) {
 
   const generate: Ctx["generate"] = ({ date, slotId, roomIds, partial }) => {
     const day = dayOfDate(date);
-    const existing = partial ? getEntry(date, slotId)?.assignments ?? [] : [];
+    const currentEntry = getEntry(date, slotId);
+    const existing = currentEntry?.assignments ?? [];
     const slot = slots.find((s) => s.id === slotId);
-    const { assignments, conflicts } = generateSchedule({ roomIds, rooms, staff, day, slotId, existing, defaultSubject: { subjectName: slot?.subjectName, subjectCode: slot?.subjectCode } });
+    const { assignments, conflicts } = generateSchedule({
+      roomIds,
+      rooms,
+      staff,
+      day,
+      slotId,
+      existing: partial ? existing : [],
+      defaultSubject: { subjectName: slot?.subjectName, subjectCode: slot?.subjectCode },
+      regenerateUnlocked: !!partial,
+    });
+    const nextAssignments = partial
+      ? withSharedFlags(mergeAssignmentsForPartialRegeneration(existing, assignments))
+      : assignments.map(cloneAssignment);
     applySchedule((prev) => {
       const filtered = prev.filter((e) => !(e.date === date && e.slotId === slotId));
-      const generated = assignments.map(cloneAssignment);
-      return [...filtered, { date, slotId, day, assignments, lastGeneratedAssignments: generated }];
+      const generatedSnapshot = nextAssignments.map(cloneAssignment);
+      return [...filtered, { date, slotId, day, assignments: nextAssignments, lastGeneratedAssignments: generatedSnapshot }];
     }, { date, slotId });
     return { conflicts };
   };
