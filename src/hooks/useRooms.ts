@@ -4,6 +4,7 @@ import type { BulkDuplicateStrategy, RoomRequest, RoomsQuery, UUID } from "@/api
 import { bulkUploadService, roomsService } from "@/services";
 import { unwrapServiceResponse } from "@/utils/serviceResponse";
 
+import { fetchAllPages } from "./fetchAllPages";
 import { queryKeys } from "./queryKeys";
 import { useSafeMutation } from "./useSafeRequest";
 
@@ -21,7 +22,7 @@ const ROOMS_TEMPLATE_ENDPOINT = "/api/bulk/rooms/template";
 export function useRoomsQuery(params: RoomsQuery = defaultRoomsParams) {
   return useQuery({
     queryKey: queryKeys.rooms.list(params),
-    queryFn: async () => unwrapServiceResponse(await roomsService.getRooms(params)),
+    queryFn: () => fetchAllPages(roomsService.getRooms, params),
     placeholderData: (previousData) => previousData,
     refetchOnWindowFocus: true,
   });

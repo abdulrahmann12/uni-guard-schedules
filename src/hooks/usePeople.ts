@@ -4,6 +4,7 @@ import type { BulkDuplicateStrategy, PeopleQuery, PersonRequest, UUID } from "@/
 import { bulkUploadService, peopleService } from "@/services";
 import { unwrapServiceResponse } from "@/utils/serviceResponse";
 
+import { fetchAllPages } from "./fetchAllPages";
 import { queryKeys } from "./queryKeys";
 import { useSafeMutation } from "./useSafeRequest";
 
@@ -21,23 +22,8 @@ const PEOPLE_TEMPLATE_ENDPOINT = "/api/bulk/persons/template";
 export function usePeopleQuery(params: PeopleQuery = defaultPeopleParams) {
   return useQuery({
     queryKey: queryKeys.people.list(params),
-    // The People/Assignments/Dashboard screens split this list client-side (e.g. by role),
-    // so they need the whole directory, not just the first page. Fetch every page.
-    queryFn: async () => {
-      const firstPage = unwrapServiceResponse(await peopleService.getPeople(params));
-      if (firstPage.totalPages <= 1) {
-        return firstPage;
-      }
-
-      const remainingPages = await Promise.all(
-        Array.from({ length: firstPage.totalPages - 1 }, async (_, index) =>
-          unwrapServiceResponse(await peopleService.getPeople({ ...params, page: index + 1 })),
-        ),
-      );
-      const items = [firstPage, ...remainingPages].flatMap((page) => page.items);
-
-      return { ...firstPage, items, page: 0, size: items.length, totalPages: 1 };
-    },
+    // The People page splits this list by role client-side, so it needs every page.
+    queryFn: () => fetchAllPages(peopleService.getPeople, params),
     placeholderData: (previousData) => previousData,
     refetchOnWindowFocus: true,
   });

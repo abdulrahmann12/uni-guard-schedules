@@ -4,6 +4,7 @@ import type { TimeSlotRequest, TimeSlotsQuery, UUID } from "@/api";
 import { timeSlotsService } from "@/services";
 import { unwrapServiceResponse } from "@/utils/serviceResponse";
 
+import { fetchAllPages } from "./fetchAllPages";
 import { queryKeys } from "./queryKeys";
 import { useSafeMutation } from "./useSafeRequest";
 
@@ -19,7 +20,7 @@ const TIME_SLOTS_ENDPOINT = "/api/slots";
 export function useTimeSlotsQuery(params: TimeSlotsQuery = defaultTimeSlotParams) {
   return useQuery({
     queryKey: queryKeys.timeSlots.list(params),
-    queryFn: async () => unwrapServiceResponse(await timeSlotsService.getTimeSlots(params)),
+    queryFn: () => fetchAllPages(timeSlotsService.getTimeSlots, params),
     placeholderData: (previousData) => previousData,
     refetchOnWindowFocus: true,
   });
