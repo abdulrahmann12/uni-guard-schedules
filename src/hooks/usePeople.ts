@@ -21,7 +21,23 @@ const PEOPLE_TEMPLATE_ENDPOINT = "/api/bulk/persons/template";
 export function usePeopleQuery(params: PeopleQuery = defaultPeopleParams) {
   return useQuery({
     queryKey: queryKeys.people.list(params),
-    queryFn: async () => unwrapServiceResponse(await peopleService.getPeople(params)),
+    // The People/Assignments/Dashboard screens split this list client-side (e.g. by role),
+    // so they need the whole directory, not just the first page. Fetch every page.
+    queryFn: async () => {
+      const firstPage = unwrapServiceResponse(await peopleService.getPeople(params));
+      if (firstPage.totalPages <= 1) {
+        return firstPage;
+      }
+
+      const remainingPages = await Promise.all(
+        Array.from({ length: firstPage.totalPages - 1 }, async (_, index) =>
+          unwrapServiceResponse(await peopleService.getPeople({ ...params, page: index + 1 })),
+        ),
+      );
+      const items = [firstPage, ...remainingPages].flatMap((page) => page.items);
+
+      return { ...firstPage, items, page: 0, size: items.length, totalPages: 1 };
+    },
     placeholderData: (previousData) => previousData,
     refetchOnWindowFocus: true,
   });
